@@ -1,0 +1,225 @@
+{
+  "project": "garden_guardian",
+  "title": "Garden Guardian",
+  "note": "Subject v2.0. Each script's output is compared line by line to the subject example (blank lines included), the functions are imported and called directly (return value + raised exception), and the source is checked: authorized builtins (super() accepted in ex3 / ex4), no import, type hints, flake8, mypy (ex2's TypeError is a mypy error on purpose: warning only).",
+  "exercises": [
+    {
+      "id": "ex0",
+      "title": "Agricultural Data Validation",
+      "file": "ex0/ft_first_exception.py",
+      "authorized": [
+        "int",
+        "print"
+      ],
+      "tests": [
+        {
+          "name": "output matches the subject",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "equals",
+              "expected": "=== Garden Temperature ===\n\nInput data is '25'\nTemperature is now 25°C\n\nInput data is 'abc'\nCaught input_temperature error: invalid literal for int() with base 10: 'abc'\n\nAll tests completed - program didn't crash!"
+            }
+          }
+        },
+        {
+          "name": "input_temperature() returns an int / raises",
+          "mode": "module",
+          "code": [
+            "assert m.input_temperature('25') == 25",
+            "assert type(m.input_temperature('25')) is int, 'must return an int'",
+            "assert m.input_temperature('-3') == -3",
+            "_, err = capture(m.input_temperature, 'abc')",
+            "assert isinstance(err, ValueError), \"'abc' must raise ValueError, got %r\" % err",
+            "assert callable(m.test_temperature), 'test_temperature() missing'",
+            "assert callable(getattr(m, 'test_temperature', None)), 'test_temperature() missing'"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex1",
+      "title": "Agricultural Data Validation Pipeline",
+      "file": "ex1/ft_raise_exception.py",
+      "authorized": [
+        "int",
+        "print"
+      ],
+      "tests": [
+        {
+          "name": "output matches the subject",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "equals",
+              "expected": "=== Garden Temperature Checker ===\n\nInput data is '25'\nTemperature is now 25°C\n\nInput data is 'abc'\nCaught input_temperature error: invalid literal for int() with base 10: 'abc'\n\nInput data is '100'\nCaught input_temperature error: 100°C is too hot for plants (max 40°C)\n\nInput data is '-50'\nCaught input_temperature error: -50°C is too cold for plants (min 0°C)\n\nAll tests completed - program didn't crash!"
+            }
+          }
+        },
+        {
+          "name": "0 and 40 are accepted, 41 / -1 / 'abc' raise",
+          "mode": "module",
+          "code": [
+            "assert m.input_temperature('0') == 0, '0 is valid'",
+            "assert m.input_temperature('40') == 40, '40 is valid (limits included)'",
+            "assert m.input_temperature('25') == 25",
+            "for bad in ('41', '-1', '100', '-50', 'abc'):",
+            "    _, err = capture(m.input_temperature, bad)",
+            "    assert err is not None, '%r must raise' % bad",
+            "_, err = capture(m.input_temperature, '100')",
+            "assert '100' in str(err) and '40' in str(err), 'the message should give the value and the max: %r' % str(err)",
+            "_, err = capture(m.input_temperature, '-50')",
+            "assert '-50' in str(err) and '0' in str(err), 'the message should give the value and the min: %r' % str(err)",
+            "assert callable(getattr(m, 'test_temperature', None)), 'test_temperature() missing'"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex2",
+      "title": "Different Types of Problems",
+      "file": "ex2/ft_different_errors.py",
+      "authorized": [
+        "print",
+        "open",
+        "int"
+      ],
+      "tests": [
+        {
+          "name": "output matches the subject",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Garden Error Types Demo ===",
+                "Testing operation 0...",
+                "Caught ValueError: invalid literal for int() with base 10: 'abc'",
+                "Testing operation 1...",
+                "Caught ZeroDivisionError: division by zero",
+                "Testing operation 2...",
+                {
+                  "re": "Caught FileNotFoundError: \\[Errno 2\\] No such file or directory: '.+'"
+                },
+                "Testing operation 3...",
+                "Caught TypeError: can only concatenate str (not \"int\") to str",
+                "Testing operation 4...",
+                "Operation completed successfully",
+                "",
+                "All error types tested successfully!"
+              ]
+            }
+          }
+        },
+        {
+          "name": "garden_operations(n) raises the right error",
+          "mode": "module",
+          "code": [
+            "want = {0: ValueError, 1: ZeroDivisionError,",
+            "        2: FileNotFoundError, 3: TypeError}",
+            "for n, kind in want.items():",
+            "    _, err = capture(m.garden_operations, n)",
+            "    assert type(err) is kind, 'operation %d: expected %s, got %r' % (n, kind.__name__, err)",
+            "for n in (4, 5, -1):",
+            "    _, err = capture(m.garden_operations, n)",
+            "    assert err is None, 'operation %d must not raise, got %r' % (n, err)",
+            "assert callable(getattr(m, 'test_error_types', None)), 'test_error_types() missing'"
+          ]
+        }
+      ],
+      "mypy": "expect_errors",
+      "require_nodes": {
+        "Try": 1
+      }
+    },
+    {
+      "id": "ex3",
+      "title": "Making Your Own Error Types",
+      "file": "ex3/ft_custom_errors.py",
+      "authorized": [
+        "print",
+        "super"
+      ],
+      "tests": [
+        {
+          "name": "output matches the subject",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "equals",
+              "expected": "=== Custom Garden Errors Demo ===\n\nTesting PlantError...\nCaught PlantError: The tomato plant is wilting!\n\nTesting WaterError...\nCaught WaterError: Not enough water in the tank!\n\nTesting catching all garden errors...\nCaught GardenError: The tomato plant is wilting!\nCaught GardenError: Not enough water in the tank!\n\nAll custom error types work correctly!"
+            }
+          }
+        },
+        {
+          "name": "class tree + default messages",
+          "mode": "module",
+          "code": [
+            "assert issubclass(m.GardenError, Exception)",
+            "assert issubclass(m.PlantError, m.GardenError), 'PlantError must inherit GardenError'",
+            "assert issubclass(m.WaterError, m.GardenError), 'WaterError must inherit GardenError'",
+            "for cls in (m.GardenError, m.PlantError, m.WaterError):",
+            "    assert str(cls()), '%s() has no default message' % cls.__name__",
+            "assert str(m.PlantError('x')) == 'x', 'a given message must replace the default one'"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex4",
+      "title": "Finally Block - Always Clean Up",
+      "file": "ex4/ft_finally_block.py",
+      "authorized": [
+        "print",
+        "super"
+      ],
+      "tests": [
+        {
+          "name": "output matches the subject",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "equals",
+              "expected": "=== Garden Watering System ===\n\nTesting valid plants...\nOpening watering system\nWatering Tomato: [OK]\nWatering Lettuce: [OK]\nWatering Carrots: [OK]\nClosing watering system\n\nTesting invalid plants...\nOpening watering system\nWatering Tomato: [OK]\nCaught PlantError: Invalid plant name to water: 'lettuce'\n.. ending tests and returning to main\nClosing watering system\n\nCleanup always happens, even with errors!"
+            }
+          }
+        },
+        {
+          "name": "water_plant() accepts capitalized names only",
+          "mode": "module",
+          "code": [
+            "out, err = capture(m.water_plant, 'Tomato')",
+            "assert err is None, \"'Tomato' must not raise\"",
+            "assert out.strip(), \"'Tomato' must print a message\"",
+            "for bad in ('lettuce', 'tOMATO'):",
+            "    _, err = capture(m.water_plant, bad)",
+            "    assert type(err).__name__ == 'PlantError', '%r must raise PlantError, got %r' % (bad, err)",
+            "assert callable(getattr(m, 'test_watering_system', None)), 'test_watering_system() missing'"
+          ]
+        },
+        {
+          "name": "the watering system is closed in a finally block",
+          "mode": "module",
+          "code": [
+            "import ast, inspect",
+            "src = inspect.getsource(m.test_watering_system)",
+            "tries = [n for n in ast.walk(ast.parse(src.strip() if src.startswith(' ') else src)) if isinstance(n, ast.Try)]",
+            "assert any(t.finalbody for t in tries), 'test_watering_system() needs try/except/finally'"
+          ]
+        }
+      ],
+      "require_nodes": {
+        "Try": 1
+      }
+    }
+  ],
+  "defaults": {
+    "typed": true,
+    "imports": []
+  }
+}

@@ -1,0 +1,379 @@
+{
+  "project": "code_nexus",
+  "title": "Code Nexus",
+  "note": "Subject v2.1. The test scenario is yours, so the script only has to run and show the subject's sections. The architecture is checked by importing your file: ABC with abstract validate / ingest, validate() per type, ingest() raising on bad data, output() giving (rank, str) oldest first, DataStream routing + stats replayed on the subject's batches, Protocol plugin + output_pipeline, valid CSV / JSON. Source: imports abc / typing only, type hints, flake8, mypy (the subject expects a mypy error on the invalid ingest test: warning only).",
+  "defaults": {
+    "typed": true,
+    "imports": [
+      "abc",
+      "typing"
+    ],
+    "mypy": "expect_errors"
+  },
+  "exercises": [
+    {
+      "id": "ex0",
+      "title": "Data Processor",
+      "file": "ex0/data_processor.py",
+      "tests": [
+        {
+          "name": "runs without crashing, subject sections shown",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "in_order",
+              "items": [
+                "=== Code Nexus - Data Processor ==="
+              ]
+            }
+          }
+        },
+        {
+          "name": "DataProcessor is an ABC with abstract validate / ingest and a concrete output",
+          "mode": "module",
+          "code": [
+            "import abc, inspect",
+            "DP = getattr(m, 'DataProcessor', None)",
+            "assert isinstance(DP, type), 'no DataProcessor class'",
+            "assert issubclass(DP, abc.ABC), 'DataProcessor must inherit from ABC'",
+            "assert {'validate', 'ingest'} <= set(DP.__abstractmethods__), 'validate and ingest must be @abstractmethod (got %r)' % set(DP.__abstractmethods__)",
+            "assert 'output' not in DP.__abstractmethods__ and callable(getattr(DP, 'output', None)), 'output() must be a standard method of DataProcessor'",
+            "_, err = capture(DP)",
+            "assert isinstance(err, TypeError), 'DataProcessor() should not be instantiable'",
+            "for name in ('NumericProcessor', 'TextProcessor', 'LogProcessor'):",
+            "    cls = getattr(m, name, None)",
+            "    assert isinstance(cls, type) and issubclass(cls, DP), '%s must inherit DataProcessor' % name",
+            "    assert 'validate' in vars(cls) and 'ingest' in vars(cls), '%s must override validate and ingest' % name",
+            "    assert 'output' not in vars(cls), '%s: output() is not to be overridden' % name",
+            "    sig = inspect.signature(cls.ingest)",
+            "    ann = list(sig.parameters.values())[1].annotation",
+            "    assert ann not in (inspect.Parameter.empty, 'Any') and str(ann) != 'typing.Any', '%s.ingest(): the signature must reflect the accepted types, got %r' % (name, ann)",
+            "sig = inspect.signature(DP.validate)",
+            "assert sig.return_annotation in (bool, 'bool'), 'validate() must return bool'",
+            "assert str(inspect.signature(DP.output).return_annotation).replace(' ', '') in ('tuple[int,str]',), 'output() must be -> tuple[int, str]'"
+          ]
+        },
+        {
+          "name": "validate(): each processor accepts only its own kind of data",
+          "mode": "module",
+          "code": [
+            "import re",
+            "def procs():",
+            "    return m.NumericProcessor(), m.TextProcessor(), m.LogProcessor()",
+            "def stats(ds):",
+            "    out, err = capture(ds.print_processors_stats)",
+            "    assert err is None, 'print_processors_stats() raised %r' % err",
+            "    return [tuple(int(x) for x in re.search(r'total (\\d+) items processed, remaining (\\d+) on processor', ln).groups())",
+            "            for ln in out.splitlines() if 'items processed' in ln]",
+            "n, t, lg = procs()",
+            "log = {'log_level': 'INFO', 'log_message': 'x'}",
+            "cases = [(n, 42, True), (n, 3.14, True), (n, [1, 2.5, -3], True), (n, 'Hello', False), (n, ['a'], False), (n, log, False),",
+            "         (t, 'Hello', True), (t, ['a', 'b'], True), (t, 42, False), (t, [1, 2], False), (t, log, False),",
+            "         (lg, log, True), (lg, [log, log], True), (lg, 'Hello', False), (lg, 42, False), (lg, {'a': 1}, False)]",
+            "for proc, data, want in cases:",
+            "    got, _, err = call(proc.validate, data)",
+            "    assert err is None, '%s.validate(%r) raised %r' % (type(proc).__name__, data, err)",
+            "    assert got is want, '%s.validate(%r) should be %s, got %r' % (type(proc).__name__, data, want, got)"
+          ]
+        },
+        {
+          "name": "ingest(): invalid data raises, valid data is stored item by item and output() gives (rank, str) oldest first",
+          "mode": "module",
+          "code": [
+            "import re",
+            "def procs():",
+            "    return m.NumericProcessor(), m.TextProcessor(), m.LogProcessor()",
+            "def stats(ds):",
+            "    out, err = capture(ds.print_processors_stats)",
+            "    assert err is None, 'print_processors_stats() raised %r' % err",
+            "    return [tuple(int(x) for x in re.search(r'total (\\d+) items processed, remaining (\\d+) on processor', ln).groups())",
+            "            for ln in out.splitlines() if 'items processed' in ln]",
+            "n, t, lg = procs()",
+            "for proc, bad in ((n, 'foo'), (t, 42), (lg, 'Hello')):",
+            "    _, err = capture(proc.ingest, bad)",
+            "    assert isinstance(err, Exception), '%s.ingest(%r) without validation must raise' % (type(proc).__name__, bad)",
+            "capture(n.ingest, [1, 2, 3])",
+            "capture(n.ingest, 4.5)",
+            "got = [n.output() for _ in range(4)]",
+            "assert got == [(0, '1'), (1, '2'), (2, '3'), (3, '4.5')], 'NumericProcessor output: %r' % got",
+            "capture(n.ingest, -1)",
+            "assert n.output() == (4, '-1'), 'the rank keeps counting after earlier outputs'",
+            "capture(t.ingest, ['Hello', 'Nexus'])",
+            "capture(t.ingest, 'World')",
+            "got = [t.output() for _ in range(3)]",
+            "assert got == [(0, 'Hello'), (1, 'Nexus'), (2, 'World')], 'TextProcessor output: %r' % got",
+            "capture(lg.ingest, [{'log_level': 'NOTICE', 'log_message': 'Connection to server'}, {'log_level': 'ERROR', 'log_message': 'Unauthorized access!!'}])",
+            "got = [lg.output() for _ in range(2)]",
+            "assert got == [(0, 'NOTICE: Connection to server'), (1, 'ERROR: Unauthorized access!!')], 'LogProcessor output: %r' % got"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex1",
+      "title": "Polymorphic Processing of a Data Stream",
+      "file": "ex1/data_stream.py",
+      "tests": [
+        {
+          "name": "runs without crashing, subject sections shown",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "in_order",
+              "items": [
+                "=== Code Nexus - Data Stream ===",
+                "== DataStream statistics =="
+              ]
+            }
+          }
+        },
+        {
+          "name": "DataProcessor is an ABC with abstract validate / ingest and a concrete output",
+          "mode": "module",
+          "code": [
+            "import abc, inspect",
+            "DP = getattr(m, 'DataProcessor', None)",
+            "assert isinstance(DP, type), 'no DataProcessor class'",
+            "assert issubclass(DP, abc.ABC), 'DataProcessor must inherit from ABC'",
+            "assert {'validate', 'ingest'} <= set(DP.__abstractmethods__), 'validate and ingest must be @abstractmethod (got %r)' % set(DP.__abstractmethods__)",
+            "assert 'output' not in DP.__abstractmethods__ and callable(getattr(DP, 'output', None)), 'output() must be a standard method of DataProcessor'",
+            "_, err = capture(DP)",
+            "assert isinstance(err, TypeError), 'DataProcessor() should not be instantiable'",
+            "for name in ('NumericProcessor', 'TextProcessor', 'LogProcessor'):",
+            "    cls = getattr(m, name, None)",
+            "    assert isinstance(cls, type) and issubclass(cls, DP), '%s must inherit DataProcessor' % name",
+            "    assert 'validate' in vars(cls) and 'ingest' in vars(cls), '%s must override validate and ingest' % name",
+            "    assert 'output' not in vars(cls), '%s: output() is not to be overridden' % name",
+            "    sig = inspect.signature(cls.ingest)",
+            "    ann = list(sig.parameters.values())[1].annotation",
+            "    assert ann not in (inspect.Parameter.empty, 'Any') and str(ann) != 'typing.Any', '%s.ingest(): the signature must reflect the accepted types, got %r' % (name, ann)",
+            "sig = inspect.signature(DP.validate)",
+            "assert sig.return_annotation in (bool, 'bool'), 'validate() must return bool'",
+            "assert str(inspect.signature(DP.output).return_annotation).replace(' ', '') in ('tuple[int,str]',), 'output() must be -> tuple[int, str]'"
+          ]
+        },
+        {
+          "name": "ingest(): invalid data raises, valid data is stored item by item and output() gives (rank, str) oldest first",
+          "mode": "module",
+          "code": [
+            "import re",
+            "def procs():",
+            "    return m.NumericProcessor(), m.TextProcessor(), m.LogProcessor()",
+            "def stats(ds):",
+            "    out, err = capture(ds.print_processors_stats)",
+            "    assert err is None, 'print_processors_stats() raised %r' % err",
+            "    return [tuple(int(x) for x in re.search(r'total (\\d+) items processed, remaining (\\d+) on processor', ln).groups())",
+            "            for ln in out.splitlines() if 'items processed' in ln]",
+            "n, t, lg = procs()",
+            "for proc, bad in ((n, 'foo'), (t, 42), (lg, 'Hello')):",
+            "    _, err = capture(proc.ingest, bad)",
+            "    assert isinstance(err, Exception), '%s.ingest(%r) without validation must raise' % (type(proc).__name__, bad)",
+            "capture(n.ingest, [1, 2, 3])",
+            "capture(n.ingest, 4.5)",
+            "got = [n.output() for _ in range(4)]",
+            "assert got == [(0, '1'), (1, '2'), (2, '3'), (3, '4.5')], 'NumericProcessor output: %r' % got",
+            "capture(n.ingest, -1)",
+            "assert n.output() == (4, '-1'), 'the rank keeps counting after earlier outputs'",
+            "capture(t.ingest, ['Hello', 'Nexus'])",
+            "capture(t.ingest, 'World')",
+            "got = [t.output() for _ in range(3)]",
+            "assert got == [(0, 'Hello'), (1, 'Nexus'), (2, 'World')], 'TextProcessor output: %r' % got",
+            "capture(lg.ingest, [{'log_level': 'NOTICE', 'log_message': 'Connection to server'}, {'log_level': 'ERROR', 'log_message': 'Unauthorized access!!'}])",
+            "got = [lg.output() for _ in range(2)]",
+            "assert got == [(0, 'NOTICE: Connection to server'), (1, 'ERROR: Unauthorized access!!')], 'LogProcessor output: %r' % got"
+          ]
+        },
+        {
+          "name": "DataStream routes the subject's batches and its stats follow (total / remaining)",
+          "mode": "module",
+          "code": [
+            "import re",
+            "def procs():",
+            "    return m.NumericProcessor(), m.TextProcessor(), m.LogProcessor()",
+            "def stats(ds):",
+            "    out, err = capture(ds.print_processors_stats)",
+            "    assert err is None, 'print_processors_stats() raised %r' % err",
+            "    return [tuple(int(x) for x in re.search(r'total (\\d+) items processed, remaining (\\d+) on processor', ln).groups())",
+            "            for ln in out.splitlines() if 'items processed' in ln]",
+            "ds = m.DataStream()",
+            "out, err = capture(ds.print_processors_stats)",
+            "assert err is None and stats(ds) == [], 'no processor yet: %r' % out",
+            "n, t, lg = procs()",
+            "ds.register_processor(n)",
+            "out, err = capture(ds.process_stream, ['Hello world', [3.14, -1, 2.71], [{'log_level': 'WARNING', 'log_message': 'Telnet access! Use ssh instead'}, {'log_level': 'INFO', 'log_message': 'User wil is connected'}], 42, ['Hi', 'five']])",
+            "assert err is None, 'process_stream() raised %r' % err",
+            "bad = [ln for ln in out.splitlines() if ln.strip()]",
+            "assert len(bad) == 3, 'with only the numeric processor, 3 elements cannot be processed (one error each), got %r' % bad",
+            "assert 'Hello world' in bad[0] and 'five' in bad[2], 'the error messages should show the element: %r' % bad",
+            "assert stats(ds) == [(4, 4)], 'stats after the first batch: %r (want total 4, remaining 4)' % stats(ds)",
+            "ds.register_processor(t)",
+            "ds.register_processor(lg)",
+            "capture(ds.process_stream, ['Hello world', [3.14, -1, 2.71], [{'log_level': 'WARNING', 'log_message': 'Telnet access! Use ssh instead'}, {'log_level': 'INFO', 'log_message': 'User wil is connected'}], 42, ['Hi', 'five']])",
+            "assert stats(ds) == [(8, 8), (3, 3), (2, 2)], 'stats after the second batch: %r' % stats(ds)",
+            "for proc, k in ((n, 3), (t, 2), (lg, 1)):",
+            "    for _ in range(k):",
+            "        proc.output()",
+            "assert stats(ds) == [(8, 5), (3, 1), (2, 1)], 'stats after consuming 3 / 2 / 1: %r' % stats(ds)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex2",
+      "title": "Data Pipeline",
+      "file": "ex2/data_pipeline.py",
+      "tests": [
+        {
+          "name": "runs without crashing, subject sections shown",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "in_order",
+              "items": [
+                "=== Code Nexus - Data Pipeline ===",
+                "== DataStream statistics =="
+              ]
+            }
+          }
+        },
+        {
+          "name": "ingest(): invalid data raises, valid data is stored item by item and output() gives (rank, str) oldest first",
+          "mode": "module",
+          "code": [
+            "import re",
+            "def procs():",
+            "    return m.NumericProcessor(), m.TextProcessor(), m.LogProcessor()",
+            "def stats(ds):",
+            "    out, err = capture(ds.print_processors_stats)",
+            "    assert err is None, 'print_processors_stats() raised %r' % err",
+            "    return [tuple(int(x) for x in re.search(r'total (\\d+) items processed, remaining (\\d+) on processor', ln).groups())",
+            "            for ln in out.splitlines() if 'items processed' in ln]",
+            "n, t, lg = procs()",
+            "for proc, bad in ((n, 'foo'), (t, 42), (lg, 'Hello')):",
+            "    _, err = capture(proc.ingest, bad)",
+            "    assert isinstance(err, Exception), '%s.ingest(%r) without validation must raise' % (type(proc).__name__, bad)",
+            "capture(n.ingest, [1, 2, 3])",
+            "capture(n.ingest, 4.5)",
+            "got = [n.output() for _ in range(4)]",
+            "assert got == [(0, '1'), (1, '2'), (2, '3'), (3, '4.5')], 'NumericProcessor output: %r' % got",
+            "capture(n.ingest, -1)",
+            "assert n.output() == (4, '-1'), 'the rank keeps counting after earlier outputs'",
+            "capture(t.ingest, ['Hello', 'Nexus'])",
+            "capture(t.ingest, 'World')",
+            "got = [t.output() for _ in range(3)]",
+            "assert got == [(0, 'Hello'), (1, 'Nexus'), (2, 'World')], 'TextProcessor output: %r' % got",
+            "capture(lg.ingest, [{'log_level': 'NOTICE', 'log_message': 'Connection to server'}, {'log_level': 'ERROR', 'log_message': 'Unauthorized access!!'}])",
+            "got = [lg.output() for _ in range(2)]",
+            "assert got == [(0, 'NOTICE: Connection to server'), (1, 'ERROR: Unauthorized access!!')], 'LogProcessor output: %r' % got"
+          ]
+        },
+        {
+          "name": "DataStream routes the subject's batches and its stats follow (total / remaining)",
+          "mode": "module",
+          "code": [
+            "import re",
+            "def procs():",
+            "    return m.NumericProcessor(), m.TextProcessor(), m.LogProcessor()",
+            "def stats(ds):",
+            "    out, err = capture(ds.print_processors_stats)",
+            "    assert err is None, 'print_processors_stats() raised %r' % err",
+            "    return [tuple(int(x) for x in re.search(r'total (\\d+) items processed, remaining (\\d+) on processor', ln).groups())",
+            "            for ln in out.splitlines() if 'items processed' in ln]",
+            "ds = m.DataStream()",
+            "out, err = capture(ds.print_processors_stats)",
+            "assert err is None and stats(ds) == [], 'no processor yet: %r' % out",
+            "n, t, lg = procs()",
+            "ds.register_processor(n)",
+            "out, err = capture(ds.process_stream, ['Hello world', [3.14, -1, 2.71], [{'log_level': 'WARNING', 'log_message': 'Telnet access! Use ssh instead'}, {'log_level': 'INFO', 'log_message': 'User wil is connected'}], 42, ['Hi', 'five']])",
+            "assert err is None, 'process_stream() raised %r' % err",
+            "bad = [ln for ln in out.splitlines() if ln.strip()]",
+            "assert len(bad) == 3, 'with only the numeric processor, 3 elements cannot be processed (one error each), got %r' % bad",
+            "assert 'Hello world' in bad[0] and 'five' in bad[2], 'the error messages should show the element: %r' % bad",
+            "assert stats(ds) == [(4, 4)], 'stats after the first batch: %r (want total 4, remaining 4)' % stats(ds)",
+            "ds.register_processor(t)",
+            "ds.register_processor(lg)",
+            "capture(ds.process_stream, ['Hello world', [3.14, -1, 2.71], [{'log_level': 'WARNING', 'log_message': 'Telnet access! Use ssh instead'}, {'log_level': 'INFO', 'log_message': 'User wil is connected'}], 42, ['Hi', 'five']])",
+            "assert stats(ds) == [(8, 8), (3, 3), (2, 2)], 'stats after the second batch: %r' % stats(ds)",
+            "for proc, k in ((n, 3), (t, 2), (lg, 1)):",
+            "    for _ in range(k):",
+            "        proc.output()",
+            "assert stats(ds) == [(8, 5), (3, 1), (2, 1)], 'stats after consuming 3 / 2 / 1: %r' % stats(ds)"
+          ]
+        },
+        {
+          "name": "ExportPlugin is a Protocol; output_pipeline(nb, plugin) sends nb (rank, str) per processor",
+          "mode": "module",
+          "code": [
+            "import re",
+            "def procs():",
+            "    return m.NumericProcessor(), m.TextProcessor(), m.LogProcessor()",
+            "def stats(ds):",
+            "    out, err = capture(ds.print_processors_stats)",
+            "    assert err is None, 'print_processors_stats() raised %r' % err",
+            "    return [tuple(int(x) for x in re.search(r'total (\\d+) items processed, remaining (\\d+) on processor', ln).groups())",
+            "            for ln in out.splitlines() if 'items processed' in ln]",
+            "import typing",
+            "EP = getattr(m, 'ExportPlugin', None)",
+            "assert isinstance(EP, type) and typing.Protocol in EP.__mro__, 'ExportPlugin must inherit typing.Protocol'",
+            "assert callable(getattr(EP, 'process_output', None)), 'ExportPlugin.process_output() missing'",
+            "class Rec:",
+            "    def __init__(self):",
+            "        self.calls = []",
+            "    def process_output(self, data):",
+            "        self.calls.append(list(data))",
+            "ds = m.DataStream()",
+            "for p in procs():",
+            "    ds.register_processor(p)",
+            "capture(ds.process_stream, ['Hello world', [3.14, -1, 2.71], [{'log_level': 'WARNING', 'log_message': 'Telnet access! Use ssh instead'}, {'log_level': 'INFO', 'log_message': 'User wil is connected'}], 42, ['Hi', 'five']])",
+            "rec = Rec()",
+            "_, err = capture(ds.output_pipeline, 3, rec)",
+            "assert err is None, 'output_pipeline() raised %r' % err",
+            "want = [[(0, '3.14'), (1, '-1'), (2, '2.71')], [(0, 'Hello world'), (1, 'Hi'), (2, 'five')],",
+            "        [(0, 'WARNING: Telnet access! Use ssh instead'), (1, 'INFO: User wil is connected')]]",
+            "got = [c for c in rec.calls if c]",
+            "assert sorted(got) == sorted(want), 'plugin received %r' % rec.calls",
+            "assert stats(ds) == [(4, 1), (3, 0), (2, 0)], 'stats after the CSV export: %r' % stats(ds)",
+            "capture(ds.process_stream, [21, ['I love AI', 'LLMs are wonderful', 'Stay healthy'], [{'log_level': 'ERROR', 'log_message': '500 server crash'}, {'log_level': 'NOTICE', 'log_message': 'Certificate expires in 10 days'}], [32, 42, 64, 84, 128, 168], 'World hello'])",
+            "assert stats(ds) == [(11, 8), (7, 4), (4, 2)], 'stats after the second batch: %r' % stats(ds)",
+            "rec = Rec()",
+            "capture(ds.output_pipeline, 5, rec)",
+            "got = [c for c in rec.calls if c]",
+            "assert [(3, '42'), (4, '21'), (5, '32'), (6, '42'), (7, '64')] in got, 'numeric export: %r' % got",
+            "assert stats(ds) == [(11, 3), (7, 0), (4, 0)], 'stats after the JSON export: %r' % stats(ds)"
+          ]
+        },
+        {
+          "name": "a CSV plugin and a JSON plugin produce valid CSV / JSON",
+          "mode": "module",
+          "code": [
+            "import json, inspect",
+            "cls = [c for n, c in vars(m).items() if inspect.isclass(c) and c.__module__ == m.__name__ and 'process_output' in vars(c) and n != 'ExportPlugin']",
+            "csv = [c for c in cls if 'csv' in c.__name__.lower()]",
+            "js = [c for c in cls if 'json' in c.__name__.lower()]",
+            "assert csv, 'no CSV export plugin class (a class with CSV in its name and process_output())'",
+            "assert js, 'no JSON export plugin class (a class with JSON in its name and process_output())'",
+            "out, err = capture(csv[0]().process_output, [(0, '3.14'), (1, '-1'), (2, '2.71')])",
+            "assert err is None, 'CSV plugin raised %r' % err",
+            "assert '3.14,-1,2.71' in out.splitlines(), 'CSV output should contain the line 3.14,-1,2.71: %r' % out",
+            "out, err = capture(js[0]().process_output, [(3, '42'), (4, 'I love AI')])",
+            "assert err is None, 'JSON plugin raised %r' % err",
+            "docs = []",
+            "for ln in out.splitlines():",
+            "    try:",
+            "        docs.append(json.loads(ln))",
+            "    except ValueError:",
+            "        pass",
+            "objs = [d for d in docs if isinstance(d, dict)]",
+            "assert objs, 'JSON output should contain a valid JSON object line: %r' % out",
+            "assert list(objs[0].values()) == ['42', 'I love AI'], 'JSON values: %r' % objs[0]",
+            "if list(objs[0]) != ['item_3', 'item_4']:",
+            "    note('JSON keys differ from the subject example (item_<rank>): %r' % list(objs[0]))"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -33,17 +33,6 @@ npm install -g .
 </details>
 
 <details>
-<summary><b>macOS</b></summary>
-
-<br>
-
-Same command as above. The Python testers work as is. The C testers are built
-for Linux (valgrind, GNU ld): for the full C checks, use the school machines
-or a Linux VM.
-
-</details>
-
-<details>
 <summary><b>Optional tools</b></summary>
 
 <br>
@@ -55,12 +44,7 @@ sudo apt install build-essential valgrind           # cc, make, valgrind
 python3 -m pip install --user norminette flake8 mypy
 ```
 
-</details>
-
-<details>
-<summary><b>Uninstall</b></summary>
-
-<br>
+Uninstall:
 
 ```sh
 rm -rf ~/42next ~/.local/bin/42next

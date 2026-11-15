@@ -1,0 +1,406 @@
+{
+  "project": "code_cultivation",
+  "title": "Code Cultivation",
+  "note": "Subject v2.1: the output is yours to design (not strictly checked), so the run checks only look for the subject's markers and that nothing crashes. The structure is checked for real: classes / methods the subject asks for, inheritance, super(), protected attributes, validation in the setters, static / class methods, nested stats class. Source: authorized builtins, no import, type hints, PascalCase / snake_case naming, flake8, mypy.",
+  "exercises": [
+    {
+      "id": "ex0",
+      "title": "Planting Your First Seed",
+      "file": "ex0/ft_garden_intro.py",
+      "authorized": [
+        "print"
+      ],
+      "main_guard": true,
+      "tests": [
+        {
+          "name": "runs and prints plant info",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "in_order",
+              "items": [
+                "=== Welcome to My Garden ===",
+                "Plant:",
+                "Height:",
+                "Age:",
+                "=== End of Program ==="
+              ]
+            },
+            "stderr": {
+              "type": "python",
+              "code": [
+                "assert 'Traceback' not in out, 'crashed: ' + lines[-1]"
+              ]
+            }
+          }
+        },
+        {
+          "name": "name / height / age stored in simple variables",
+          "mode": "module",
+          "code": [
+            "import ast",
+            "src = open(m.__file__, encoding='utf-8').read()",
+            "names = {n.id for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}",
+            "missing = [w for w in ('name', 'height', 'age') if not any(w in n for n in names)]",
+            "assert not missing, 'no variable for: %s' % ', '.join(missing)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex1",
+      "title": "Garden Data Organizer",
+      "file": "ex1/ft_garden_data.py",
+      "authorized": [
+        "print"
+      ],
+      "tests": [
+        {
+          "name": "runs and shows several plants (cm / days)",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "in_order",
+              "items": [
+                "=== Garden Plant Registry ===",
+                "cm",
+                "days old",
+                "cm",
+                "days old",
+                "cm",
+                "days old"
+              ]
+            },
+            "stderr": {
+              "type": "python",
+              "code": [
+                "assert 'Traceback' not in out, 'crashed: ' + lines[-1]"
+              ]
+            }
+          }
+        },
+        {
+          "name": "a Plant class with show()",
+          "mode": "module",
+          "code": [
+            "assert isinstance(m.Plant, type), 'no Plant class'",
+            "assert callable(getattr(m.Plant, 'show', None)), 'Plant.show() missing'"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex2",
+      "title": "Plant Growth Simulator",
+      "file": "ex2/ft_plant_growth.py",
+      "authorized": [
+        "print",
+        "range",
+        "round"
+      ],
+      "tests": [
+        {
+          "name": "runs and summarises weekly growth",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "in_order",
+              "items": [
+                "=== Garden Plant Growth ===",
+                "=== Day 1 ===",
+                "=== Day 7 ===",
+                "Growth this week:"
+              ]
+            },
+            "stderr": {
+              "type": "python",
+              "code": [
+                "assert 'Traceback' not in out, 'crashed: ' + lines[-1]"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Plant has grow() and age()",
+          "mode": "module",
+          "code": [
+            "for meth in ('show', 'grow', 'age'):",
+            "    assert callable(getattr(m.Plant, meth, None)), 'Plant.%s() missing' % meth"
+          ]
+        },
+        {
+          "name": "grow() and age() change the plant",
+          "mode": "module",
+          "code": [
+            "import inspect",
+            "def required(f):",
+            "    return [p for p in inspect.signature(f).parameters.values() if p.default is inspect.Parameter.empty and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]",
+            "n = len(required(m.Plant))",
+            "p = m.Plant(*['Rose', 25.0, 30, 1, 1][:n])",
+            "before = dict(vars(p))",
+            "_, err = capture(p.grow, *[1] * len(required(p.grow)))",
+            "assert err is None, 'grow() raised %r' % err",
+            "after_grow = dict(vars(p))",
+            "assert after_grow != before, 'grow() changed nothing'",
+            "_, err = capture(p.age, *[1] * len(required(p.age)))",
+            "assert err is None, 'age() raised %r' % err",
+            "assert dict(vars(p)) != after_grow, 'age() changed nothing'"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex3",
+      "title": "Plant Factory",
+      "file": "ex3/ft_plant_factory.py",
+      "authorized": [
+        "print",
+        "range",
+        "round"
+      ],
+      "tests": [
+        {
+          "name": "runs and creates several plants",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "in_order",
+              "items": [
+                "=== Plant Factory Output ===",
+                "Created:",
+                "Created:",
+                "Created:",
+                "Created:",
+                "Created:"
+              ]
+            },
+            "stderr": {
+              "type": "python",
+              "code": [
+                "assert 'Traceback' not in out, 'crashed: ' + lines[-1]"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Plant(name, height, age) is ready to use",
+          "mode": "module",
+          "code": [
+            "p = m.Plant('Rose', 25.0, 30)",
+            "out, err = capture(p.show)",
+            "assert err is None, 'show() raised %r' % err",
+            "assert 'Rose' in out and '25' in out and '30' in out, 'show() should print the name, height and age: %r' % out"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex4",
+      "title": "Garden Security System",
+      "file": "ex4/ft_garden_security.py",
+      "authorized": [
+        "print",
+        "range",
+        "round"
+      ],
+      "tests": [
+        {
+          "name": "runs and rejects a negative value",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "in_order",
+              "items": [
+                "=== Garden Security System ===",
+                "rejected"
+              ]
+            },
+            "stderr": {
+              "type": "python",
+              "code": [
+                "assert 'Traceback' not in out, 'crashed: ' + lines[-1]"
+              ]
+            }
+          }
+        },
+        {
+          "name": "setters validate, getters read, data is protected",
+          "mode": "module",
+          "code": [
+            "p = m.Plant('Rose', 15.0, 10)",
+            "for name in vars(p):",
+            "    assert name.startswith('_'), 'attribute %r is not protected' % name",
+            "    assert '__' not in name, '%r uses name mangling, the subject wants _protected' % name",
+            "capture(p.set_height, 25)",
+            "capture(p.set_age, 30)",
+            "assert p.get_height() == 25, 'set_height(25) did not apply'",
+            "assert p.get_age() == 30, 'set_age(30) did not apply'",
+            "out, _ = capture(p.set_height, -5)",
+            "assert p.get_height() == 25, 'set_height(-5) changed the height'",
+            "assert out.strip(), 'set_height(-5) printed no error'",
+            "out, _ = capture(p.set_age, -5)",
+            "assert p.get_age() == 30, 'set_age(-5) changed the age'",
+            "assert out.strip(), 'set_age(-5) printed no error'",
+            "out, err = capture(m.Plant, 'Bad', -1.0, -1)",
+            "assert err is None, 'creating a bad plant raised %r' % err",
+            "assert out.strip(), 'creating a plant with negative values printed no error'"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex5",
+      "title": "Specialized Plant Types",
+      "file": "ex5/ft_plant_types.py",
+      "authorized": [
+        "super",
+        "print",
+        "range",
+        "round"
+      ],
+      "require_nodes": {
+        "ClassDef": 4
+      },
+      "tests": [
+        {
+          "name": "runs and shows the three specialised types",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "in_order",
+              "items": [
+                "=== Garden Plant Types ===",
+                "=== Flower",
+                "Color:",
+                "=== Tree",
+                "Trunk diameter:",
+                "=== Vegetable",
+                "Harvest season:",
+                "Nutritional value:"
+              ]
+            },
+            "stderr": {
+              "type": "python",
+              "code": [
+                "assert 'Traceback' not in out, 'crashed: ' + lines[-1]"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Flower / Tree / Vegetable inherit Plant",
+          "mode": "module",
+          "code": [
+            "for name in ('Flower', 'Tree', 'Vegetable'):",
+            "    cls = getattr(m, name, None)",
+            "    assert isinstance(cls, type), 'no %s class' % name",
+            "    assert issubclass(cls, m.Plant), '%s must inherit Plant' % name",
+            "assert callable(getattr(m.Flower, 'bloom', None)), 'Flower.bloom() missing'",
+            "assert callable(getattr(m.Tree, 'produce_shade', None)), 'Tree.produce_shade() missing'",
+            "import ast, inspect",
+            "assert 'super' in inspect.getsource(m), 'the specialised classes must call the parent with super()'",
+            "f = m.Flower('Rose', 15.0, 10, 'red')",
+            "assert 'red' in vars(f).values() or any('red' == v for v in vars(f).values()), 'Flower should store its color'",
+            "out, err = capture(f.show)",
+            "assert err is None and 'Rose' in out and 'red' in out, 'Flower.show() should print the plant and its color: %r' % out",
+            "v = m.Vegetable('Tomato', 5.0, 10, 'April')",
+            "vals = [x for k, x in vars(v).items() if 'nutri' in k]",
+            "assert vals, 'Vegetable needs a nutritional_value attribute'",
+            "assert vals[0] == 0, 'nutritional value must start at 0, got %r' % vals[0]",
+            "for _ in range(3):",
+            "    capture(v.grow)",
+            "    capture(v.age)",
+            "vals2 = [x for k, x in vars(v).items() if 'nutri' in k]",
+            "assert vals2[0] > 0, 'nutritional value must increase with grow() / age()'",
+            "assert any('harvest' in k for k in vars(v)), 'Vegetable needs a harvest_season attribute'",
+            "assert any('trunk' in k for k in vars(m.Tree('Oak', 200.0, 365, 5.0))), 'Tree needs a trunk_diameter attribute'"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex6",
+      "title": "Garden Analytics",
+      "file": "ex6/ft_garden_analytics.py",
+      "authorized": [
+        "super",
+        "staticmethod",
+        "classmethod",
+        "print",
+        "range",
+        "round"
+      ],
+      "tests": [
+        {
+          "name": "runs and reports per-plant statistics",
+          "mode": "script",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "in_order",
+              "items": [
+                "=== Garden statistics ===",
+                "-> False",
+                "-> True",
+                "=== Flower",
+                "Stats:",
+                "=== Tree",
+                "shade",
+                "=== Seed",
+                "Seeds:",
+                "=== Anonymous",
+                "Stats:"
+              ]
+            },
+            "stderr": {
+              "type": "python",
+              "code": [
+                "assert 'Traceback' not in out, 'crashed: ' + lines[-1]"
+              ]
+            }
+          }
+        },
+        {
+          "name": "static + class method, nested stats class, Seed",
+          "mode": "module",
+          "code": [
+            "kinds = [type(v).__name__ for v in vars(m.Plant).values()]",
+            "assert 'staticmethod' in kinds, 'Plant needs a static method (year check)'",
+            "assert 'classmethod' in kinds, 'Plant needs a class method (anonymous plant)'",
+            "nested = [v for v in vars(m.Plant).values() if isinstance(v, type)]",
+            "assert nested, 'Plant needs a nested class for its stats'",
+            "for name in ('Flower', 'Tree', 'Seed'):",
+            "    assert isinstance(getattr(m, name, None), type), 'no %s class' % name",
+            "assert issubclass(m.Seed, m.Flower), 'Seed must inherit Flower'",
+            "assert issubclass(m.Tree, m.Plant)",
+            "import inspect",
+            "static = [v.__func__ for v in vars(m.Plant).values() if isinstance(v, staticmethod)]",
+            "res = [s(30) for s in static if len(inspect.signature(s).parameters) == 1]",
+            "assert res and res[0] is False, 'the static year check should say False for 30 days'",
+            "res = [s(400) for s in static if len(inspect.signature(s).parameters) == 1]",
+            "assert res[0] is True, 'the static year check should say True for 400 days'",
+            "cm = [getattr(m.Plant, k) for k, v in vars(m.Plant).items() if isinstance(v, classmethod)]",
+            "anon, out, err = call(cm[0])",
+            "assert err is None and isinstance(anon, m.Plant), 'the class method should build a Plant without arguments (got %r / %r)' % (anon, err)",
+            "funcs = [v for k, v in vars(m).items() if inspect.isfunction(v) and v.__module__ == m.__name__ and k != 'main']",
+            "assert funcs, 'a standalone function (not in a class) must display the stats of any plant'",
+            "assert issubclass(m.Seed, m.Flower)",
+            "t_attrs = set(inspect.getsource(m.Tree).split())",
+            "assert any('shade' in w for w in t_attrs), 'Tree needs a produce_shade() counter in its stats'"
+          ]
+        }
+      ]
+    }
+  ],
+  "defaults": {
+    "typed": true,
+    "naming": true,
+    "imports": []
+  }
+}

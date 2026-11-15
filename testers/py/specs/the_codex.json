@@ -1,0 +1,606 @@
+{
+  "project": "the_codex",
+  "title": "The Codex",
+  "note": "Subject v2.0. Each script runs from a copy of your project root so alchemy/ resolves. The 'Testing ...' lines and the returned strings are compared to the subject; the description lines may differ (warning). Import styles are read from the source (import ... / from ... import ..., absolute + relative in recipes.py). ft_alembic_4 must hit AttributeError on create_earth, ft_kaboom_1 must hit the circular ImportError. Source: only imports of your own modules, no eval() / exec(), sys.path untouched, type hints, flake8, mypy (ft_alembic_4's mypy error is expected: warning only).",
+  "defaults": {
+    "typed": true,
+    "imports": "local",
+    "forbidden": [
+      "eval",
+      "exec"
+    ],
+    "no_sys_path": true
+  },
+  "exercises": [
+    {
+      "id": "elements",
+      "title": "Part I: elements.py",
+      "file": "elements.py",
+      "tests": [
+        {
+          "name": "create_fire() / create_water() return the subject's strings",
+          "mode": "module",
+          "cwd": "root",
+          "load": false,
+          "code": [
+            "import elements",
+            "assert elements.create_fire() == 'Fire element created', 'create_fire(): %r' % elements.create_fire()",
+            "assert elements.create_water() == 'Water element created', 'create_water(): %r' % elements.create_water()"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "alembic_0",
+      "title": "Part I: import elements",
+      "file": "ft_alembic_0.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Alembic 0 ===",
+                {
+                  "re": ".+",
+                  "subject": "Using: 'import ...' structure to access elements.py"
+                },
+                "Testing create_fire: Fire element created"
+              ]
+            }
+          }
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "import",
+          "module": "elements"
+        }
+      ]
+    },
+    {
+      "id": "alembic_1",
+      "title": "Part I: from elements import",
+      "file": "ft_alembic_1.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Alembic 1 ===",
+                {
+                  "re": ".+",
+                  "subject": "Using: 'from ... import ...' structure to access elements.py"
+                },
+                "Testing create_water: Water element created"
+              ]
+            }
+          }
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "from",
+          "module": "elements"
+        }
+      ]
+    },
+    {
+      "id": "alembic_2",
+      "title": "Part I: import alchemy.elements",
+      "file": "ft_alembic_2.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Alembic 2 ===",
+                {
+                  "re": ".+",
+                  "subject": "Accessing alchemy/elements.py using 'import ...' structure"
+                },
+                "Testing create_earth: Earth element created"
+              ]
+            }
+          }
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "import",
+          "module": "alchemy.elements"
+        }
+      ]
+    },
+    {
+      "id": "alembic_3",
+      "title": "Part I: from alchemy.elements import",
+      "file": "ft_alembic_3.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Alembic 3 ===",
+                {
+                  "re": ".+",
+                  "subject": "Accessing alchemy/elements.py using 'from ... import ...' structure"
+                },
+                "Testing create_air: Air element created"
+              ]
+            }
+          }
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "from",
+          "module": "alchemy.elements"
+        }
+      ]
+    },
+    {
+      "id": "alembic_4",
+      "title": "Part I: import alchemy (create_earth hidden)",
+      "file": "ft_alembic_4.py",
+      "tests": [
+        {
+          "name": "creates air, then create_earth is not reachable (AttributeError)",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "allow_traceback": true,
+            "stdout": {
+              "type": "lines",
+              "tail": false,
+              "items": [
+                "=== Alembic 4 ===",
+                {
+                  "re": ".+",
+                  "subject": "Accessing the alchemy module using 'import alchemy'"
+                },
+                "Testing create_air: Air element created",
+                {
+                  "re": ".+",
+                  "subject": "Now show that not all functions can be reached"
+                },
+                {
+                  "re": ".+",
+                  "subject": "This will raise an exception!"
+                },
+                {
+                  "re": ".*",
+                  "subject": "Testing the hidden create_earth: "
+                }
+              ]
+            },
+            "output": {
+              "type": "regex",
+              "pattern": "AttributeError.*create_earth"
+            }
+          }
+        },
+        {
+          "name": "the alchemy package exposes create_air, not create_earth",
+          "mode": "module",
+          "cwd": "root",
+          "load": false,
+          "code": [
+            "import alchemy",
+            "assert getattr(alchemy, 'create_air', None) and alchemy.create_air() == 'Air element created', 'alchemy.create_air() missing'",
+            "assert not hasattr(alchemy, 'create_earth'), 'create_earth must not be exposed by alchemy/__init__.py'"
+          ]
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "import",
+          "module": "alchemy"
+        }
+      ],
+      "mypy": "expect_errors"
+    },
+    {
+      "id": "alembic_5",
+      "title": "Part I: from alchemy import",
+      "file": "ft_alembic_5.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Alembic 5 ===",
+                {
+                  "re": ".+",
+                  "subject": "Accessing the alchemy module using 'from alchemy import ...'"
+                },
+                "Testing create_air: Air element created"
+              ]
+            }
+          }
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "from",
+          "module": "alchemy"
+        }
+      ]
+    },
+    {
+      "id": "distillation_0",
+      "title": "Part II: from alchemy.potions import",
+      "file": "ft_distillation_0.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Distillation 0 ===",
+                {
+                  "re": ".+",
+                  "subject": "Direct access to alchemy/potions.py"
+                },
+                "Testing strength_potion: Strength potion brewed with 'Fire element created' and 'Water element created'",
+                "Testing healing_potion: Healing potion brewed with 'Earth element created' and 'Air element created'"
+              ]
+            }
+          }
+        },
+        {
+          "name": "alchemy/potions.py: healing_potion() / strength_potion()",
+          "mode": "module",
+          "cwd": "root",
+          "load": false,
+          "code": [
+            "from alchemy import potions",
+            "assert potions.healing_potion() == \"Healing potion brewed with 'Earth element created' and 'Air element created'\", 'healing_potion(): %r' % potions.healing_potion()",
+            "assert potions.strength_potion() == \"Strength potion brewed with 'Fire element created' and 'Water element created'\", 'strength_potion(): %r' % potions.strength_potion()"
+          ]
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "from",
+          "module": "alchemy.potions"
+        }
+      ]
+    },
+    {
+      "id": "distillation_1",
+      "title": "Part II: import alchemy (heal alias)",
+      "file": "ft_distillation_1.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Distillation 1 ===",
+                {
+                  "re": ".+",
+                  "subject": "Using: 'import alchemy' structure to access potions"
+                },
+                "Testing strength_potion: Strength potion brewed with 'Fire element created' and 'Water element created'",
+                "Testing heal alias: Healing potion brewed with 'Earth element created' and 'Air element created'"
+              ]
+            }
+          }
+        },
+        {
+          "name": "alchemy.heal is the package alias of healing_potion",
+          "mode": "module",
+          "cwd": "root",
+          "load": false,
+          "code": [
+            "import alchemy",
+            "from alchemy import potions",
+            "assert hasattr(alchemy, 'heal'), 'alchemy.heal missing (alias in alchemy/__init__.py)'",
+            "assert alchemy.heal is potions.healing_potion, 'alchemy.heal must be healing_potion itself'",
+            "assert alchemy.strength_potion() == potions.strength_potion()"
+          ]
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "import",
+          "module": "alchemy"
+        }
+      ]
+    },
+    {
+      "id": "recipes",
+      "title": "Part III: alchemy/transmutation/recipes.py",
+      "file": "alchemy/transmutation/recipes.py",
+      "tests": [
+        {
+          "name": "lead_to_gold() returns the subject's string",
+          "mode": "module",
+          "cwd": "root",
+          "load": false,
+          "code": [
+            "from alchemy.transmutation import recipes",
+            "assert recipes.lead_to_gold() == \"Recipe transmuting Lead to Gold: brew 'Air element created' and 'Strength potion brewed with 'Fire element created' and 'Water element created'' mixed with 'Fire element created'\", 'lead_to_gold(): %r' % recipes.lead_to_gold()"
+          ]
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "absolute"
+        },
+        {
+          "kind": "relative"
+        }
+      ]
+    },
+    {
+      "id": "transmutation_0",
+      "title": "Part III: import alchemy.transmutation.recipes",
+      "file": "ft_transmutation_0.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Transmutation 0 ===",
+                {
+                  "re": ".+",
+                  "subject": "Using file alchemy/transmutation/recipes.py directly"
+                },
+                "Testing lead to gold: Recipe transmuting Lead to Gold: brew 'Air element created' and 'Strength potion brewed with 'Fire element created' and 'Water element created'' mixed with 'Fire element created'"
+              ]
+            }
+          }
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "import",
+          "module": "alchemy.transmutation.recipes"
+        }
+      ]
+    },
+    {
+      "id": "transmutation_1",
+      "title": "Part III: import alchemy.transmutation",
+      "file": "ft_transmutation_1.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Transmutation 1 ===",
+                {
+                  "re": ".+",
+                  "subject": "Import transmutation module directly"
+                },
+                "Testing lead to gold: Recipe transmuting Lead to Gold: brew 'Air element created' and 'Strength potion brewed with 'Fire element created' and 'Water element created'' mixed with 'Fire element created'"
+              ]
+            }
+          }
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "import",
+          "module": "alchemy.transmutation"
+        }
+      ]
+    },
+    {
+      "id": "transmutation_2",
+      "title": "Part III: import alchemy only",
+      "file": "ft_transmutation_2.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Transmutation 2 ===",
+                {
+                  "re": ".+",
+                  "subject": "Import alchemy module only"
+                },
+                "Testing lead to gold: Recipe transmuting Lead to Gold: brew 'Air element created' and 'Strength potion brewed with 'Fire element created' and 'Water element created'' mixed with 'Fire element created'"
+              ]
+            }
+          }
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "import",
+          "module": "alchemy"
+        }
+      ]
+    },
+    {
+      "id": "kaboom_0",
+      "title": "Part IV: light spell, no circular import",
+      "file": "ft_kaboom_0.py",
+      "tests": [
+        {
+          "name": "output matches the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "exit_code": 0,
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Kaboom 0 ===",
+                {
+                  "re": ".+",
+                  "subject": "Using grimoire module directly"
+                },
+                {
+                  "re": "Testing record light spell: .*\\bVALID\\b.*",
+                  "subject": "Testing record light spell: Spell recorded: Fantasy (Earth, wind and fire - VALID)"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "light spellbook / validator behave as the subject says",
+          "mode": "module",
+          "cwd": "root",
+          "load": false,
+          "code": [
+            "from alchemy.grimoire import light_spellbook, light_validator",
+            "allowed = light_spellbook.light_spell_allowed_ingredients()",
+            "assert type(allowed) is list and allowed and all(type(x) is str for x in allowed), 'allowed ingredients must be a list of str: %r' % (allowed,)",
+            "ok = light_validator.validate_ingredients('Some ' + allowed[0].upper() + ' dust')",
+            "assert type(ok) is str and 'VALID' in ok and 'INVALID' not in ok, 'an allowed ingredient (any case) must be VALID: %r' % ok",
+            "assert allowed[0].upper() in ok, 'the result should contain the ingredients: %r' % ok",
+            "bad = light_validator.validate_ingredients('qqq zzz')",
+            "assert 'INVALID' in bad, 'no allowed ingredient must be INVALID: %r' % bad",
+            "rec = light_spellbook.light_spell_record('Fantasy', allowed[0])",
+            "rej = light_spellbook.light_spell_record('Nope', 'qqq zzz')",
+            "assert 'recorded' in rec.lower(), 'a valid spell should be recorded: %r' % rec",
+            "assert 'rejected' in rej.lower(), 'an invalid spell should be rejected: %r' % rej",
+            "assert rec != rej"
+          ]
+        },
+        {
+          "name": "dark_spellbook.py / dark_validator.py exist with renamed functions",
+          "mode": "module",
+          "cwd": "root",
+          "load": false,
+          "code": [
+            "import ast, os",
+            "src = open(os.path.join('alchemy', 'grimoire', 'dark_spellbook.py'), encoding='utf-8').read()",
+            "names = {n.name for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef)}",
+            "for want in ('dark_spell_allowed_ingredients', 'dark_spell_record'):",
+            "    assert want in names, 'dark_spellbook.py: %s() missing' % want",
+            "assert os.path.isfile(os.path.join('alchemy', 'grimoire', 'dark_validator.py')), 'dark_validator.py missing'"
+          ]
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "under",
+          "module": "alchemy.grimoire"
+        }
+      ]
+    },
+    {
+      "id": "kaboom_1",
+      "title": "Part IV: dark spell, circular import",
+      "file": "ft_kaboom_1.py",
+      "tests": [
+        {
+          "name": "importing dark_spellbook explodes with a circular import",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "allow_traceback": true,
+            "stdout": {
+              "type": "lines",
+              "tail": false,
+              "items": [
+                "=== Kaboom 1 ===",
+                {
+                  "re": ".+",
+                  "subject": "Access to alchemy/grimoire/dark_spellbook.py directly"
+                },
+                {
+                  "re": ".+",
+                  "subject": "Test import now - THIS WILL RAISE AN UNCAUGHT EXCEPTION"
+                }
+              ]
+            },
+            "output": {
+              "type": "regex",
+              "pattern": "ImportError.*(circular import|partially initialized)"
+            }
+          }
+        }
+      ],
+      "require_imports": [
+        {
+          "kind": "under",
+          "module": "alchemy.grimoire.dark_spellbook"
+        }
+      ]
+    },
+    {
+      "id": "package",
+      "title": "alchemy package files (source checks)",
+      "file": "alchemy/__init__.py",
+      "tests": [
+        {
+          "name": "the tree of the subject is there",
+          "mode": "module",
+          "cwd": "root",
+          "load": false,
+          "code": [
+            "import os",
+            "want = ['alchemy/__init__.py', 'alchemy/elements.py', 'alchemy/potions.py', 'alchemy/transmutation/__init__.py', 'alchemy/transmutation/recipes.py', 'alchemy/grimoire/__init__.py', 'alchemy/grimoire/light_spellbook.py', 'alchemy/grimoire/light_validator.py', 'alchemy/grimoire/dark_spellbook.py', 'alchemy/grimoire/dark_validator.py', 'elements.py']",
+            "missing = [f for f in want if not os.path.isfile(f)]",
+            "assert not missing, 'missing: ' + ', '.join(missing)"
+          ]
+        }
+      ],
+      "also_check": [
+        "alchemy/elements.py",
+        "alchemy/potions.py",
+        "alchemy/transmutation/__init__.py",
+        "alchemy/transmutation/recipes.py",
+        "alchemy/grimoire/__init__.py",
+        "alchemy/grimoire/light_spellbook.py",
+        "alchemy/grimoire/light_validator.py",
+        "alchemy/grimoire/dark_spellbook.py",
+        "alchemy/grimoire/dark_validator.py"
+      ]
+    }
+  ]
+}

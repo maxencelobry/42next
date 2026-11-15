@@ -1,0 +1,766 @@
+{
+  "project": "data_archivist",
+  "title": "Data Archivist",
+  "note": "Subject v2.0. Each script runs in an empty temporary folder with the fixtures we create (ancient_fragment.txt, chmod 000 / 444 files), nothing in your project is touched. The frame (---, blank lines, contents, the # transform) is checked line by line; messages may be reworded (subject 3.2) as long as the essential info is there: a reworded line is a warning, not a failure. Every file you open must be closed. Source: authorized builtins, imports sys/typing only, no 'with' before ex3, 'with' required in ex3, input() not allowed in ex2, type hints, flake8, mypy.",
+  "defaults": {
+    "typed": true
+  },
+  "exercises": [
+    {
+      "id": "ex0",
+      "title": "Ancient Text Recovery",
+      "file": "ex0/ft_ancient_text.py",
+      "authorized": [
+        "len",
+        "open",
+        "print",
+        "str",
+        "int",
+        "float",
+        "list",
+        "dict",
+        "set",
+        "tuple"
+      ],
+      "imports": [
+        "sys",
+        "typing"
+      ],
+      "forbid_nodes": {
+        "With": "the with statement must not be used before ex3"
+      },
+      "track_open": true,
+      "tests": [
+        {
+          "name": "no argument -> usage",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "Usage: .*ft_ancient_text\\.py.*",
+                  "subject": "Usage: ft_ancient_text.py <file>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "missing file -> error message (subject: [Errno 2])",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "foo"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "=== .+ ===",
+                  "subject": "=== Cyber Archives Recovery ==="
+                },
+                {
+                  "re": ".*'foo'.*",
+                  "subject": "Accessing file 'foo'"
+                },
+                {
+                  "re": ".*'foo'.*\\[Errno 2\\] No such file or directory: 'foo'",
+                  "subject": "Error opening file 'foo': [Errno 2] No such file or directory: 'foo'"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "unreadable file (chmod 000) -> [Errno 13] Permission denied",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "secret.txt"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n",
+            "secret.txt": {
+              "content": "top secret\n",
+              "mode": "000"
+            }
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "=== .+ ===",
+                  "subject": "=== Cyber Archives Recovery ==="
+                },
+                {
+                  "re": ".*'secret\\.txt'.*",
+                  "subject": "Accessing file 'secret.txt'"
+                },
+                {
+                  "re": ".*'secret\\.txt'.*\\[Errno 13\\] Permission denied: 'secret\\.txt'",
+                  "subject": "Error opening file 'secret.txt': [Errno 13] Permission denied: 'secret.txt'"
+                }
+              ]
+            }
+          },
+          "nonroot": true
+        },
+        {
+          "name": "a directory instead of a file (inaccessible) -> handled, no crash",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "vault"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n",
+            "vault": {
+              "dir": true
+            }
+          },
+          "match": {}
+        },
+        {
+          "name": "existing file -> header, contents between ---, closed (and really closed)",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "ancient_fragment.txt"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "=== .+ ===",
+                  "subject": "=== Cyber Archives Recovery ==="
+                },
+                {
+                  "re": ".*'ancient_fragment\\.txt'.*",
+                  "subject": "Accessing file 'ancient_fragment.txt'"
+                },
+                "---",
+                "",
+                "[FRAGMENT 001] Digital preservation protocols established 2087",
+                "[FRAGMENT 002] Knowledge must survive the entropy wars",
+                "[FRAGMENT 003] Every byte saved is a victory against oblivion",
+                "",
+                "---",
+                {
+                  "re": ".*'ancient_fragment\\.txt'.*closed.*",
+                  "subject": "File 'ancient_fragment.txt' closed."
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ex1",
+      "title": "Archive Creation",
+      "file": "ex1/ft_archive_creation.py",
+      "authorized": [
+        "len",
+        "open",
+        "print",
+        "input",
+        "str",
+        "int",
+        "float",
+        "list",
+        "dict",
+        "set",
+        "tuple"
+      ],
+      "imports": [
+        "sys",
+        "typing"
+      ],
+      "forbid_nodes": {
+        "With": "the with statement must not be used before ex3"
+      },
+      "track_open": true,
+      "tests": [
+        {
+          "name": "empty file name -> transformed data shown, nothing saved",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "ancient_fragment.txt"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "=== .+ ===",
+                  "subject": "=== Cyber Archives Recovery & Preservation ==="
+                },
+                {
+                  "re": ".*'ancient_fragment\\.txt'.*",
+                  "subject": "Accessing file 'ancient_fragment.txt'"
+                },
+                "---",
+                "",
+                "[FRAGMENT 001] Digital preservation protocols established 2087",
+                "[FRAGMENT 002] Knowledge must survive the entropy wars",
+                "[FRAGMENT 003] Every byte saved is a victory against oblivion",
+                "",
+                "---",
+                {
+                  "re": ".*'ancient_fragment\\.txt'.*closed.*",
+                  "subject": "File 'ancient_fragment.txt' closed."
+                },
+                "",
+                "Transform data:",
+                "---",
+                "",
+                "[FRAGMENT 001] Digital preservation protocols established 2087#",
+                "[FRAGMENT 002] Knowledge must survive the entropy wars#",
+                "[FRAGMENT 003] Every byte saved is a victory against oblivion#",
+                "",
+                "---",
+                {
+                  "re": "Enter new file name \\(or empty\\): .+",
+                  "subject": "Enter new file name (or empty): Not saving data."
+                }
+              ]
+            }
+          },
+          "stdin": "\n",
+          "no_new_files": true
+        },
+        {
+          "name": "file name given -> saved with a # at the end of each line",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "ancient_fragment.txt"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "=== .+ ===",
+                  "subject": "=== Cyber Archives Recovery & Preservation ==="
+                },
+                {
+                  "re": ".*'ancient_fragment\\.txt'.*",
+                  "subject": "Accessing file 'ancient_fragment.txt'"
+                },
+                "---",
+                "",
+                "[FRAGMENT 001] Digital preservation protocols established 2087",
+                "[FRAGMENT 002] Knowledge must survive the entropy wars",
+                "[FRAGMENT 003] Every byte saved is a victory against oblivion",
+                "",
+                "---",
+                {
+                  "re": ".*'ancient_fragment\\.txt'.*closed.*",
+                  "subject": "File 'ancient_fragment.txt' closed."
+                },
+                "",
+                "Transform data:",
+                "---",
+                "",
+                "[FRAGMENT 001] Digital preservation protocols established 2087#",
+                "[FRAGMENT 002] Knowledge must survive the entropy wars#",
+                "[FRAGMENT 003] Every byte saved is a victory against oblivion#",
+                "",
+                "---",
+                {
+                  "re": "Enter new file name \\(or empty\\): .*'new_fragment\\.txt'.*",
+                  "subject": "Enter new file name (or empty): Saving data to 'new_fragment.txt'"
+                },
+                {
+                  "re": ".*'new_fragment\\.txt'.*",
+                  "subject": "Data saved in file 'new_fragment.txt'."
+                }
+              ]
+            }
+          },
+          "stdin": "new_fragment.txt\n",
+          "outputs": [
+            {
+              "file": "new_fragment.txt",
+              "match": {
+                "type": "lines",
+                "items": [
+                  "[FRAGMENT 001] Digital preservation protocols established 2087#",
+                  "[FRAGMENT 002] Knowledge must survive the entropy wars#",
+                  "[FRAGMENT 003] Every byte saved is a victory against oblivion#"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "existing target file -> replaced, not appended",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "ancient_fragment.txt"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n",
+            "old.txt": "OLD CONTENT\nOLD CONTENT\nOLD CONTENT\nOLD CONTENT\nOLD CONTENT\nOLD CONTENT\nOLD CONTENT\nOLD CONTENT\nOLD CONTENT\nOLD CONTENT\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": ".*'old\\.txt'.*"
+                }
+              ],
+              "tail": true
+            }
+          },
+          "stdin": "old.txt\n",
+          "outputs": [
+            {
+              "file": "old.txt",
+              "match": {
+                "type": "lines",
+                "items": [
+                  "[FRAGMENT 001] Digital preservation protocols established 2087#",
+                  "[FRAGMENT 002] Knowledge must survive the entropy wars#",
+                  "[FRAGMENT 003] Every byte saved is a victory against oblivion#"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex2",
+      "title": "Stream Management",
+      "file": "ex2/ft_stream_management.py",
+      "authorized": [
+        "len",
+        "open",
+        "print",
+        "str",
+        "int",
+        "float",
+        "list",
+        "dict",
+        "set",
+        "tuple"
+      ],
+      "imports": [
+        "sys",
+        "typing"
+      ],
+      "forbid_nodes": {
+        "With": "the with statement must not be used before ex3"
+      },
+      "track_open": true,
+      "tests": [
+        {
+          "name": "missing file -> error on stderr (prefixed), header on stdout",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "foo"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "=== .+ ===",
+                  "subject": "=== Cyber Archives Recovery & Preservation ==="
+                },
+                {
+                  "re": ".*'foo'.*",
+                  "subject": "Accessing file 'foo'"
+                }
+              ]
+            },
+            "stderr": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": ".*'foo'.*\\[Errno 2\\] No such file or directory: 'foo'",
+                  "subject": "[STDERR] Error opening file 'foo': [Errno 2] No such file or directory: 'foo'"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "unreadable file (chmod 000) -> [Errno 13] Permission denied",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "secret.txt"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n",
+            "secret.txt": {
+              "content": "top secret\n",
+              "mode": "000"
+            }
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "=== .+ ===",
+                  "subject": "=== Cyber Archives Recovery & Preservation ==="
+                },
+                {
+                  "re": ".*'secret\\.txt'.*",
+                  "subject": "Accessing file 'secret.txt'"
+                }
+              ]
+            },
+            "stderr": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": ".*'secret\\.txt'.*\\[Errno 13\\] Permission denied: 'secret\\.txt'",
+                  "subject": "[STDERR] Error opening file 'secret.txt': [Errno 13] Permission denied: 'secret.txt'"
+                }
+              ]
+            }
+          },
+          "nonroot": true
+        },
+        {
+          "name": "a directory instead of a file (inaccessible) -> handled, no crash",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "vault"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n",
+            "vault": {
+              "dir": true
+            }
+          },
+          "match": {}
+        },
+        {
+          "name": "empty file name -> nothing saved",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "ancient_fragment.txt"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "=== .+ ===",
+                  "subject": "=== Cyber Archives Recovery & Preservation ==="
+                },
+                {
+                  "re": ".*'ancient_fragment\\.txt'.*",
+                  "subject": "Accessing file 'ancient_fragment.txt'"
+                },
+                "---",
+                "",
+                "[FRAGMENT 001] Digital preservation protocols established 2087",
+                "[FRAGMENT 002] Knowledge must survive the entropy wars",
+                "[FRAGMENT 003] Every byte saved is a victory against oblivion",
+                "",
+                "---",
+                {
+                  "re": ".*'ancient_fragment\\.txt'.*closed.*",
+                  "subject": "File 'ancient_fragment.txt' closed."
+                },
+                "",
+                "Transform data:",
+                "---",
+                "",
+                "[FRAGMENT 001] Digital preservation protocols established 2087#",
+                "[FRAGMENT 002] Knowledge must survive the entropy wars#",
+                "[FRAGMENT 003] Every byte saved is a victory against oblivion#",
+                "",
+                "---",
+                {
+                  "re": "Enter new file name \\(or empty\\): .+",
+                  "subject": "Enter new file name (or empty): Not saving data."
+                }
+              ]
+            }
+          },
+          "stdin": "\n",
+          "no_new_files": true
+        },
+        {
+          "name": "file name read from sys.stdin (no input()) -> saved",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "ancient_fragment.txt"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "=== .+ ===",
+                  "subject": "=== Cyber Archives Recovery & Preservation ==="
+                },
+                {
+                  "re": ".*'ancient_fragment\\.txt'.*",
+                  "subject": "Accessing file 'ancient_fragment.txt'"
+                },
+                "---",
+                "",
+                "[FRAGMENT 001] Digital preservation protocols established 2087",
+                "[FRAGMENT 002] Knowledge must survive the entropy wars",
+                "[FRAGMENT 003] Every byte saved is a victory against oblivion",
+                "",
+                "---",
+                {
+                  "re": ".*'ancient_fragment\\.txt'.*closed.*",
+                  "subject": "File 'ancient_fragment.txt' closed."
+                },
+                "",
+                "Transform data:",
+                "---",
+                "",
+                "[FRAGMENT 001] Digital preservation protocols established 2087#",
+                "[FRAGMENT 002] Knowledge must survive the entropy wars#",
+                "[FRAGMENT 003] Every byte saved is a victory against oblivion#",
+                "",
+                "---",
+                {
+                  "re": "Enter new file name \\(or empty\\): .*'new_fragment\\.txt'.*",
+                  "subject": "Enter new file name (or empty): Saving data to 'new_fragment.txt'"
+                },
+                {
+                  "re": ".*'new_fragment\\.txt'.*",
+                  "subject": "Data saved in file 'new_fragment.txt'."
+                }
+              ]
+            }
+          },
+          "stdin": "new_fragment.txt\n",
+          "outputs": [
+            {
+              "file": "new_fragment.txt",
+              "match": {
+                "type": "lines",
+                "items": [
+                  "[FRAGMENT 001] Digital preservation protocols established 2087#",
+                  "[FRAGMENT 002] Knowledge must survive the entropy wars#",
+                  "[FRAGMENT 003] Every byte saved is a victory against oblivion#"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "write refused (read-only file, like /etc/passwd) -> error on stderr, 'Data not saved.'",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "ancient_fragment.txt"
+          ],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n",
+            "readonly.txt": {
+              "content": "KEEP\n",
+              "mode": "444"
+            }
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": "Enter new file name \\(or empty\\): .*'readonly\\.txt'.*",
+                  "subject": "Enter new file name (or empty): Saving data to 'readonly.txt'"
+                },
+                {
+                  "re": ".*not saved.*",
+                  "subject": "Data not saved."
+                }
+              ],
+              "tail": true
+            },
+            "stderr": {
+              "type": "lines",
+              "items": [
+                {
+                  "re": ".*'readonly\\.txt'.*\\[Errno 13\\] Permission denied: 'readonly\\.txt'",
+                  "subject": "[STDERR] Error opening file 'readonly.txt': [Errno 13] Permission denied: 'readonly.txt'"
+                }
+              ]
+            }
+          },
+          "stdin": "readonly.txt\n",
+          "nonroot": true,
+          "outputs": [
+            {
+              "file": "readonly.txt",
+              "match": {
+                "type": "equals",
+                "expected": "KEEP"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex3",
+      "title": "Vault Security",
+      "file": "ex3/ft_vault_security.py",
+      "authorized": [
+        "open",
+        "print",
+        "str",
+        "int",
+        "float",
+        "list",
+        "dict",
+        "set",
+        "tuple"
+      ],
+      "imports": [],
+      "require_nodes": {
+        "With": 1
+      },
+      "track_open": true,
+      "tests": [
+        {
+          "name": "demo output follows the subject",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [],
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "lines",
+              "items": [
+                "=== Cyber Archives Security ===",
+                "",
+                "Using 'secure_archive' to read from a nonexistent file:",
+                {
+                  "re": "\\(False, .*No such file or directory.*\\)",
+                  "subject": "(False, \"[Errno 2] No such file or directory: '/not/existing/file'\")"
+                },
+                "",
+                "Using 'secure_archive' to read from an inaccessible file:",
+                {
+                  "re": "\\(False, .+\\)"
+                },
+                "",
+                "Using 'secure_archive' to read from a regular file:",
+                {
+                  "re": "\\(True, .+\\)",
+                  "subject": "(True, '[FRAGMENT 001] Digital preservation protocols established 2087\\n[FRAGMENT 002] Knowledge must survive the entropy wars\\n[FRAGMENT 003] Every byte saved is a victory against oblivion\\n')"
+                },
+                "",
+                "Using 'secure_archive' to write previous content to a new file:",
+                {
+                  "re": "\\(True, .+\\)",
+                  "subject": "(True, 'Content successfully written to file')"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "secure_archive(name) reads by default -> (True, content)",
+          "mode": "module",
+          "cwd": "temp",
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "code": [
+            "f = getattr(m, 'secure_archive', None)",
+            "assert callable(f), 'secure_archive() is missing'",
+            "r, out, err = call(f, 'ancient_fragment.txt')",
+            "assert err is None, 'raised %r' % err",
+            "assert type(r) is tuple and len(r) == 2, 'must return a (bool, str) tuple, got %r' % (r,)",
+            "assert r == (True, '[FRAGMENT 001] Digital preservation protocols established 2087\\n[FRAGMENT 002] Knowledge must survive the entropy wars\\n[FRAGMENT 003] Every byte saved is a victory against oblivion\\n'), 'got %r' % (r,)",
+            "assert not unclosed(), 'file left open: %r' % unclosed()"
+          ]
+        },
+        {
+          "name": "missing / unreadable file -> (False, error message)",
+          "mode": "module",
+          "cwd": "temp",
+          "fixtures": {
+            "secret.txt": {
+              "content": "x\n",
+              "mode": "000"
+            }
+          },
+          "code": [
+            "r, _, err = call(m.secure_archive, 'nope.txt')",
+            "assert err is None, 'missing file raised %r' % err",
+            "assert r[0] is False and type(r[1]) is str and 'No such file' in r[1], 'missing file: %r' % (r,)",
+            "if not is_root:",
+            "    r, _, err = call(m.secure_archive, 'secret.txt')",
+            "    assert err is None and r[0] is False and 'Permission denied' in r[1], 'chmod 000 file: %r / %r' % (r, err)"
+          ]
+        },
+        {
+          "name": "write action -> file written, (True, message)",
+          "mode": "module",
+          "cwd": "temp",
+          "code": [
+            "import os",
+            "found = None",
+            "for action in ('write', 'w', 'WRITE', 'Write', 1, 'wr', 2, 'W', 'save'):",
+            "    name = 'out_%s.txt' % str(action)",
+            "    r, _, err = call(m.secure_archive, name, action, 'hello vault\\n')",
+            "    if err is None and os.path.isfile(name):",
+            "        found = action",
+            "        break",
+            "assert found is not None, 'could not find the write action (tried write, w, 1, 2...)'",
+            "note('write action detected: %r' % (found,)) if found not in ('write', 'w') else None",
+            "assert r[0] is True and type(r[1]) is str, 'write must return (True, message), got %r' % (r,)",
+            "assert read_text(name) == 'hello vault\\n', 'written content: %r' % read_text(name)",
+            "assert not unclosed(), 'file left open: %r' % unclosed()"
+          ]
+        }
+      ]
+    }
+  ]
+}

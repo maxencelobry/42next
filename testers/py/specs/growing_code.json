@@ -1,0 +1,429 @@
+{
+  "project": "growing_code",
+  "title": "Growing Code",
+  "note": "Subject v2.0. Each function's output is compared to the subject (prompts included, input() writes them). Source: only the authorized builtins, no import, nothing but the function(s) in the file (helpers allowed in ex6), real recursion in ex6, type hints + exact signature in ex7, flake8 everywhere, mypy.",
+  "exercises": [
+    {
+      "id": "ex0",
+      "title": "Hello Garden",
+      "file": "ex0/ft_hello_garden.py",
+      "authorized": [
+        "print"
+      ],
+      "only_functions": true,
+      "tests": [
+        {
+          "name": "prints the welcome message",
+          "mode": "func_stdio",
+          "func": "ft_hello_garden",
+          "match": {
+            "type": "equals",
+            "expected": "Hello, Garden Community!"
+          },
+          "args": []
+        }
+      ]
+    },
+    {
+      "id": "ex1",
+      "title": "Garden Name",
+      "file": "ex1/ft_garden_name.py",
+      "authorized": [
+        "input",
+        "print"
+      ],
+      "only_functions": true,
+      "tests": [
+        {
+          "name": "Community Garden",
+          "mode": "func_stdio",
+          "func": "ft_garden_name",
+          "stdin": "Community Garden\n",
+          "match": {
+            "type": "equals",
+            "expected": "Enter garden name: Garden: Community Garden\nStatus: Growing well!"
+          }
+        },
+        {
+          "name": "another name",
+          "mode": "func_stdio",
+          "func": "ft_garden_name",
+          "stdin": "Rooftop 42\n",
+          "match": {
+            "type": "equals",
+            "expected": "Enter garden name: Garden: Rooftop 42\nStatus: Growing well!"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ex2",
+      "title": "Garden Plot Area",
+      "file": "ex2/ft_plot_area.py",
+      "authorized": [
+        "input",
+        "int",
+        "print"
+      ],
+      "only_functions": true,
+      "tests": [
+        {
+          "name": "5 x 3 -> 15",
+          "mode": "func_stdio",
+          "func": "ft_plot_area",
+          "stdin": "5\n3\n",
+          "match": {
+            "type": "equals",
+            "expected": "Enter length: Enter width: Plot area: 15"
+          }
+        },
+        {
+          "name": "7 x 6 -> 42",
+          "mode": "func_stdio",
+          "func": "ft_plot_area",
+          "stdin": "7\n6\n",
+          "match": {
+            "type": "equals",
+            "expected": "Enter length: Enter width: Plot area: 42"
+          }
+        },
+        {
+          "name": "0 x 9 -> 0",
+          "mode": "func_stdio",
+          "func": "ft_plot_area",
+          "stdin": "0\n9\n",
+          "match": {
+            "type": "equals",
+            "expected": "Enter length: Enter width: Plot area: 0"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ex3",
+      "title": "Harvest Total",
+      "file": "ex3/ft_harvest_total.py",
+      "authorized": [
+        "input",
+        "int",
+        "print"
+      ],
+      "only_functions": true,
+      "tests": [
+        {
+          "name": "5 + 8 + 3 -> 16",
+          "mode": "func_stdio",
+          "func": "ft_harvest_total",
+          "stdin": "5\n8\n3\n",
+          "match": {
+            "type": "equals",
+            "expected": "Day 1 harvest: Day 2 harvest: Day 3 harvest: Total harvest: 16"
+          }
+        },
+        {
+          "name": "0 + 0 + 0 -> 0",
+          "mode": "func_stdio",
+          "func": "ft_harvest_total",
+          "stdin": "0\n0\n0\n",
+          "match": {
+            "type": "equals",
+            "expected": "Day 1 harvest: Day 2 harvest: Day 3 harvest: Total harvest: 0"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ex4",
+      "title": "Plant Age Check",
+      "file": "ex4/ft_plant_age.py",
+      "authorized": [
+        "input",
+        "int",
+        "print"
+      ],
+      "only_functions": true,
+      "tests": [
+        {
+          "name": "75 days -> ready",
+          "mode": "func_stdio",
+          "func": "ft_plant_age",
+          "stdin": "75\n",
+          "match": {
+            "type": "equals",
+            "expected": "Enter plant age in days: Plant is ready to harvest!"
+          }
+        },
+        {
+          "name": "45 days -> needs more time",
+          "mode": "func_stdio",
+          "func": "ft_plant_age",
+          "stdin": "45\n",
+          "match": {
+            "type": "equals",
+            "expected": "Enter plant age in days: Plant needs more time to grow."
+          }
+        },
+        {
+          "name": "60 days -> needs more time (strictly > 60)",
+          "mode": "func_stdio",
+          "func": "ft_plant_age",
+          "stdin": "60\n",
+          "match": {
+            "type": "equals",
+            "expected": "Enter plant age in days: Plant needs more time to grow."
+          }
+        },
+        {
+          "name": "61 days -> ready",
+          "mode": "func_stdio",
+          "func": "ft_plant_age",
+          "stdin": "61\n",
+          "match": {
+            "type": "equals",
+            "expected": "Enter plant age in days: Plant is ready to harvest!"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ex5",
+      "title": "Water Reminder",
+      "file": "ex5/ft_water_reminder.py",
+      "authorized": [
+        "input",
+        "int",
+        "print"
+      ],
+      "only_functions": true,
+      "tests": [
+        {
+          "name": "4 days -> water",
+          "mode": "func_stdio",
+          "func": "ft_water_reminder",
+          "stdin": "4\n",
+          "match": {
+            "type": "equals",
+            "expected": "Days since last watering: Water the plants!"
+          }
+        },
+        {
+          "name": "1 day -> fine",
+          "mode": "func_stdio",
+          "func": "ft_water_reminder",
+          "stdin": "1\n",
+          "match": {
+            "type": "equals",
+            "expected": "Days since last watering: Plants are fine"
+          }
+        },
+        {
+          "name": "2 days -> fine (strictly > 2)",
+          "mode": "func_stdio",
+          "func": "ft_water_reminder",
+          "stdin": "2\n",
+          "match": {
+            "type": "equals",
+            "expected": "Days since last watering: Plants are fine"
+          }
+        },
+        {
+          "name": "3 days -> water",
+          "mode": "func_stdio",
+          "func": "ft_water_reminder",
+          "stdin": "3\n",
+          "match": {
+            "type": "equals",
+            "expected": "Days since last watering: Water the plants!"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ex6",
+      "title": "Count to Harvest",
+      "file": "ex6/ft_count_harvest_iterative.py",
+      "authorized": [
+        "input",
+        "int",
+        "print",
+        "range"
+      ],
+      "only_functions": true,
+      "tests": [
+        {
+          "name": "5 days",
+          "mode": "func_stdio",
+          "func": "ft_count_harvest_iterative",
+          "stdin": "5\n",
+          "match": {
+            "type": "equals",
+            "expected": "Days until harvest: Day 1\nDay 2\nDay 3\nDay 4\nDay 5\nHarvest time!"
+          }
+        },
+        {
+          "name": "1 days",
+          "mode": "func_stdio",
+          "func": "ft_count_harvest_iterative",
+          "stdin": "1\n",
+          "match": {
+            "type": "equals",
+            "expected": "Days until harvest: Day 1\nHarvest time!"
+          }
+        },
+        {
+          "name": "12 days",
+          "mode": "func_stdio",
+          "func": "ft_count_harvest_iterative",
+          "stdin": "12\n",
+          "match": {
+            "type": "equals",
+            "expected": "Days until harvest: Day 1\nDay 2\nDay 3\nDay 4\nDay 5\nDay 6\nDay 7\nDay 8\nDay 9\nDay 10\nDay 11\nDay 12\nHarvest time!"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ex6r",
+      "title": "Count to Harvest (recursive)",
+      "file": "ex6/ft_count_harvest_recursive.py",
+      "authorized": [
+        "input",
+        "int",
+        "print",
+        "range"
+      ],
+      "only_functions": true,
+      "recursive": true,
+      "tests": [
+        {
+          "name": "5 days",
+          "mode": "func_stdio",
+          "func": "ft_count_harvest_recursive",
+          "stdin": "5\n",
+          "match": {
+            "type": "equals",
+            "expected": "Days until harvest: Day 1\nDay 2\nDay 3\nDay 4\nDay 5\nHarvest time!"
+          }
+        },
+        {
+          "name": "1 days",
+          "mode": "func_stdio",
+          "func": "ft_count_harvest_recursive",
+          "stdin": "1\n",
+          "match": {
+            "type": "equals",
+            "expected": "Days until harvest: Day 1\nHarvest time!"
+          }
+        },
+        {
+          "name": "12 days",
+          "mode": "func_stdio",
+          "func": "ft_count_harvest_recursive",
+          "stdin": "12\n",
+          "match": {
+            "type": "equals",
+            "expected": "Days until harvest: Day 1\nDay 2\nDay 3\nDay 4\nDay 5\nDay 6\nDay 7\nDay 8\nDay 9\nDay 10\nDay 11\nDay 12\nHarvest time!"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ex7",
+      "title": "Seed Inventory (typed)",
+      "file": "ex7/ft_seed_inventory.py",
+      "authorized": [
+        "print"
+      ],
+      "only_functions": true,
+      "typed": true,
+      "tests": [
+        {
+          "name": "packets unit",
+          "mode": "func_stdio",
+          "func": "ft_seed_inventory",
+          "match": {
+            "type": "equals",
+            "expected": "Tomato seeds: 15 packets available"
+          },
+          "args": [
+            "tomato",
+            15,
+            "packets"
+          ]
+        },
+        {
+          "name": "grams unit",
+          "mode": "func_stdio",
+          "func": "ft_seed_inventory",
+          "match": {
+            "type": "equals",
+            "expected": "Carrot seeds: 8 grams total"
+          },
+          "args": [
+            "carrot",
+            8,
+            "grams"
+          ]
+        },
+        {
+          "name": "area unit",
+          "mode": "func_stdio",
+          "func": "ft_seed_inventory",
+          "match": {
+            "type": "equals",
+            "expected": "Lettuce seeds: covers 12 square meters"
+          },
+          "args": [
+            "lettuce",
+            12,
+            "area"
+          ]
+        },
+        {
+          "name": "unknown unit",
+          "mode": "func_stdio",
+          "func": "ft_seed_inventory",
+          "match": {
+            "type": "equals",
+            "expected": "Unknown unit type"
+          },
+          "args": [
+            "basil",
+            3,
+            "tons"
+          ]
+        },
+        {
+          "name": "already capitalized / multi-letter",
+          "mode": "func_stdio",
+          "func": "ft_seed_inventory",
+          "match": {
+            "type": "equals",
+            "expected": "Sunflower seeds: 100 packets available"
+          },
+          "args": [
+            "SUNFLOWER",
+            100,
+            "packets"
+          ]
+        },
+        {
+          "name": "signature: ft_seed_inventory(seed_type: str, quantity: int, unit: str) -> None",
+          "mode": "module",
+          "code": [
+            "import inspect",
+            "sig = inspect.signature(m.ft_seed_inventory)",
+            "params = list(sig.parameters.values())",
+            "assert [p.name for p in params] == ['seed_type', 'quantity', 'unit'], 'parameters: %r' % [p.name for p in params]",
+            "ann = [p.annotation for p in params]",
+            "assert ann == [str, int, str] or ann == ['str', 'int', 'str'], 'annotations: %r' % ann",
+            "assert sig.return_annotation in (None, 'None'), 'return annotation must be None, got %r' % sig.return_annotation"
+          ]
+        }
+      ]
+    }
+  ],
+  "defaults": {
+    "imports": []
+  }
+}

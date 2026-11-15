@@ -744,11 +744,20 @@ IGNORED_SYMBOLS = {"_GLOBAL_OFFSET_TABLE_", "__stack_chk_fail", "_DYNAMIC",
                    "__libc_start_main", "__stack_chk_guard", "_init", "_fini",
                    "__dso_handle", "__TMC_END__", "__bss_start", "_edata",
                    "_end", "_start", "__data_start", "data_start",
-                   "_IO_stdin_used", "__libc_csu_init", "__libc_csu_fini"}
+                   "_IO_stdin_used", "__libc_csu_init", "__libc_csu_fini",
+                   "dyld_stub_binder"}
 
 # compilers may emit these for plain C code
 COMPILER_ALIASES = {"memcpy", "memset", "memmove", "__memcpy_chk",
                     "__memset_chk", "__memmove_chk"}
+
+
+def _c_name(sym):
+    """C name of an nm symbol: no @version, no Mach-O leading underscore."""
+    sym = sym.split("@")[0]
+    if sys.platform == "darwin" and sym.startswith("_"):
+        sym = sym[1:]   # macOS prefixes every C symbol with one _
+    return sym
 
 
 def external_symbols(files):
@@ -761,22 +770,14 @@ def external_symbols(files):
         for line in res.out.decode("utf-8", "replace").splitlines():
             parts = line.split()
             if parts and parts[-1] not in ("U", "w"):
-                sym = parts[-1]
-                if sym.startswith("_") and not sym.startswith("__"):
-                    sym = sym[1:]   # macOS prefixes C symbols with _
-                undefined.add(sym)
+                undefined.add(_c_name(parts[-1]))
         res = run(["nm", "--defined-only", "-g", f], timeout=30)
         for line in res.out.decode("utf-8", "replace").splitlines():
             parts = line.split()
             if len(parts) >= 3:
-                defined.add(parts[-1])
-    out = set()
-    for sym in undefined:
-        base = sym.split("@")[0]
-        if base in IGNORED_SYMBOLS or base in defined:
-            continue
-        out.add(base)
-    return sorted(out)
+                defined.add(_c_name(parts[-1]))
+    return sorted(s for s in undefined
+                  if s not in IGNORED_SYMBOLS and s not in defined)
 
 
 def check_functions(rep, files, allowed, label="external functions"):

@@ -5,7 +5,7 @@
 ## Owner rules (decided with the owner, keep them)
 
 - The owner writes in informal French: answer in French. Everything the tool prints, the README and the code comments are in English.
-- Commits: author `mlobry <mlobry@learner.42.tech>` (set in the local git config of the repo, never the owner's personal account), with `Co-Authored-By: Claude <noreply@anthropic.com>`. Push to `main` only when the owner asks.
+- Commits: author `mlobry <maxence.lobry@learner.42.tech>` (set in the local git config of the repo, never the owner's personal account), with `Co-Authored-By: Claude <noreply@anthropic.com>`. Push to `main` only when the owner asks.
 - Concrete and direct. No bling: no achievements, animations, stats, fun facts, settings or i18n. A clean interface is fine.
 - Zero config. Everything is auto-detected or passed as an argument.
 - No exam mode. The README points to https://42exam.net/ for exams.

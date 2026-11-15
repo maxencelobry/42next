@@ -229,8 +229,8 @@ function snapshot(dir, acc = []) {
 async function watch(p, job) {
   for (;;) {
     process.stdout.write(CLEAR);
+    const before = snapshot(p.dir);   // taken first: a save during the run re-runs
     runJob(p, { ...job, keep: false });
-    const before = snapshot(p.dir);
     if (!process.stdin.isTTY) return 'menu';
     process.stdout.write('\n' + dim(` watching ${short(p.dir)}: save a file to run again   r now   q stop `));
     const why = await new Promise((res) => {
@@ -626,11 +626,15 @@ function update(force = false) {
 function migrate() {
   if (process.platform === 'win32') return;
   const real = (p) => { try { return fs.realpathSync(p); } catch { return ''; } };
-  const old = real(path.join(HOME, '42next'));
+  const old = path.join(HOME, '42next');
   const dest = path.join(HOME, '.local', 'share', '42next');
   const link = path.join(HOME, '.local', 'bin', '42next');
-  if (!old || real(ROOT) !== old || fs.existsSync(dest)) return;
-  if (real(link) !== path.join(old, 'bin', '42next.js')) return;
+  // a symlinked ~/42next points to a clone elsewhere: leave it
+  try { if (!fs.lstatSync(old).isDirectory()) return; } catch { return; }
+  if (real(ROOT) !== real(old) || fs.existsSync(dest)) return;
+  if (real(link) !== path.join(real(old), 'bin', '42next.js')) return;
+  const origin = spawnSync('git', ['-C', old, 'remote', 'get-url', 'origin'], { encoding: 'utf8' }).stdout || '';
+  if (!origin.includes('maxencelobry/42next')) return;
   try {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.renameSync(old, dest);

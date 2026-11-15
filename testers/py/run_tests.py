@@ -68,7 +68,7 @@ IGNORE_COPY = shutil.ignore_patterns(".git", "__pycache__", ".mypy_cache",
                                      "node_modules", ".venv", "venv")
 CHILD_ENV = {"PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8",
              "PYTHONHASHSEED": "0"}
-NOTES = []          # remarks gathered while matching (shown as WARN)
+NOTES: list = []    # remarks gathered while matching (shown as WARN)
 
 
 def child_env():
@@ -947,7 +947,7 @@ def tool_cmd(name):
     return None
 
 
-_TOOLS = {}
+_TOOLS: dict = {}
 
 
 def tool(name):

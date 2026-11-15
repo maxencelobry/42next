@@ -107,6 +107,9 @@ test and keeps the menu. The last run is at the top of the menu.
 | Inception | docker-compose.yml, Dockerfiles, nginx TLS, restart, network, volumes, secrets, the docs, and the running stack when docker is up |
 | Python | output line by line, authorized functions, type hints, flake8, mypy |
 
+For the live Inception checks, start your stack with `make` first: 42next
+only reads the running containers, it never starts or stops them.
+
 Python covers Growing Code, Code Cultivation, Garden Guardian, Data Quest,
 Data Archivist, Code Nexus and The Codex. C projects also get norminette, the
 Makefile (rules, flags, relink), forbidden functions and the README.

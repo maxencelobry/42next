@@ -608,7 +608,7 @@ function update(force = false) {
   try { fs.mkdirSync(path.dirname(stamp), { recursive: true }); fs.writeFileSync(stamp, ''); } catch { /* read-only home */ }
   const git = (...a) => spawnSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', timeout: 4000 });
   if (git('status', '--porcelain', '--untracked-files=no').stdout.trim()) {
-    if (force) console.log(yellow('local changes in ~/42next: update skipped'));
+    if (force) console.log(yellow(`local changes in ${short(ROOT)}: update skipped`));
     return;
   }
   if (force) console.log(dim('checking for updates...'));
@@ -618,6 +618,34 @@ function update(force = false) {
   const r = git('pull', '--ff-only', '--quiet');
   if (r.status === 0) console.log(green(`42next updated (${behind} new commit${behind === '1' ? '' : 's'}): `) + dim(git('log', '-1', '--format=%s').stdout.trim()));
   else if (force) console.log(red('update failed: ') + (r.stderr || '').trim());
+}
+
+// Older installs lived in ~/42next. Move them to ~/.local/share/42next (out of
+// sight), point the ~/.local/bin/42next link there and run again from there.
+// Only for an install made by install.sh: a clone elsewhere is never moved.
+function migrate() {
+  if (process.platform === 'win32') return;
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return ''; } };
+  const old = real(path.join(HOME, '42next'));
+  const dest = path.join(HOME, '.local', 'share', '42next');
+  const link = path.join(HOME, '.local', 'bin', '42next');
+  if (!old || real(ROOT) !== old || fs.existsSync(dest)) return;
+  if (real(link) !== path.join(old, 'bin', '42next.js')) return;
+  try {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.renameSync(old, dest);
+  } catch { return; }
+  try {
+    fs.symlinkSync(path.join(dest, 'bin', '42next.js'), link + '.new');
+    fs.renameSync(link + '.new', link);
+  } catch {
+    try { fs.rmSync(link + '.new', { force: true }); fs.renameSync(dest, old); } catch { /* keep the move */ }
+    return;
+  }
+  console.log(dim(`42next moved to ${short(dest)}`));
+  process.on('SIGINT', () => {}); // ctrl-c belongs to the new process
+  const r = spawnSync(process.execPath, [link, ...process.argv.slice(2)], { stdio: 'inherit' });
+  process.exit(r.status ?? 1);
 }
 
 // ---------------------------------------------------------------- CLI
@@ -641,6 +669,7 @@ const HELP = `${bold('42next')} - tester for 42 projects. Run it in your project
 async function main() {
   const args = process.argv.slice(2);
   const cwd = process.cwd();
+  migrate();
   if (args[0] === '-h' || args[0] === '--help' || args[0] === 'help') return console.log(HELP);
   if (args[0] === 'update') return update(true);
   update();

@@ -25,8 +25,8 @@ For C projects, install [WSL](https://learn.microsoft.com/en-us/windows/wsl/inst
 For Python projects only, in PowerShell:
 
 ```powershell
-git clone https://github.com/maxencelobry/42next.git $HOME\42next
-cd $HOME\42next
+git clone https://github.com/maxencelobry/42next.git $env:LOCALAPPDATA\42next
+cd $env:LOCALAPPDATA\42next
 npm install -g .
 ```
 
@@ -47,7 +47,7 @@ python3 -m pip install --user norminette flake8 mypy
 Uninstall:
 
 ```sh
-rm -rf ~/42next ~/.local/bin/42next
+rm -rf ~/.local/share/42next ~/.local/bin/42next
 ```
 
 </details>

@@ -80,96 +80,27 @@ Menu keys: `↑↓` move, `enter` select, `1-9` jump, `space` tick, `q` back, `r
 
 </details>
 
-## Results
-
-![KO](https://img.shields.io/badge/KO-f87171?style=flat-square) the subject requires it and it is broken<br>
-![WARN](https://img.shields.io/badge/WARN-fbbf24?style=flat-square) up to your evaluator, or not written in the subject<br>
-![SKIP](https://img.shields.io/badge/SKIP-7088b0?style=flat-square) a tool is missing, or `42next quick` was used<br>
-![OK](https://img.shields.io/badge/OK-4ade80?style=flat-square) passed
-
-Every check comes from the subject. A failure shows the exact call, the
-expected output and yours. Your folder is never modified.
-
 ## Projects
 
-<details>
-<summary><b>libft</b></summary>
+- libft
+- ft_printf
+- get_next_line
+- push_swap
+- Born2beRoot
+- Python: Growing Code, Garden Guardian, Data Quest, Code Cultivation, Code Nexus, The Codex, Data Archivist
 
-<br>
+## Details
 
-- every function vs libc or a reference: edge cases, `\0`, bytes > 127, `INT_MIN`
-- malloc failing at each call: `NULL` returned, nothing leaked
-- crashes and timeouts caught per case
-- leaks per function (valgrind)
-- `files`, `norm`, `makefile`, forbidden functions, README
+Every check comes from the subject. A failure shows the exact call, the
+expected output and yours.
 
-`42next ft_split` tests one function.
+- `KO`: the subject requires it.
+- `WARN`: up to your evaluator.
+- `SKIP`: a tool is missing, or `42next quick` was used.
 
-</details>
-
-<details>
-<summary><b>ft_printf</b></summary>
-
-<br>
-
-- every conversion vs the real `printf`: bytes and return value
-- `NULL` strings and pointers, `INT_MIN`, `UINT_MAX`, `%c` with `\0`
-- bonus flags and width when `make bonus` exists
-- leaks, norm, Makefile, forbidden functions, README
-
-`42next p` tests one conversion.
-
-</details>
-
-<details>
-<summary><b>get_next_line</b></summary>
-
-<br>
-
-- `BUFFER_SIZE` from 1 to 10000000, and none
-- empty files, no final newline, very long lines, stdin
-- invalid fd, `read` failing midway
-- leaks and open fds, bonus with several fds
-
-</details>
-
-<details>
-<summary><b>push_swap</b></summary>
-
-<br>
-
-- every error case: `Error` on stderr, nothing on stdout
-- every permutation of 2 to 5 numbers, compared to the fewest moves possible
-- 100 and 500 numbers: operations vs the subject's thresholds
-- disorder levels, `--simple` / `--medium` / `--complex` / `--adaptive`, `--bench`
-- leaks, norm, Makefile
-
-</details>
-
-<details>
-<summary><b>Born2beRoot</b></summary>
-
-<br>
-
-- `signature.txt` vs the sha1 of the VM disk
-- `check.sh` to run inside the VM: LVM, SSH, UFW, password policy, sudo, `monitoring.sh`
-
-</details>
-
-<details>
-<summary><b>Python</b></summary>
-
-<br>
-
-Growing Code, Garden Guardian, Data Quest, Code Cultivation, Code Nexus, The Codex, Data Archivist.
-
-- output compared line by line, blank lines included
-- functions and classes called directly: return values, exceptions
-- authorized functions, type hints, flake8, mypy
-
-`42next ex3` tests one exercise.
-
-</details>
+C projects also get norminette, the Makefile (rules, flags, relink), forbidden
+functions, leaks and the README. Python projects get flake8, mypy and the
+authorized functions. Your folder is never modified.
 
 ## Resources
 

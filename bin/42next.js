@@ -14,16 +14,15 @@ const HOME = os.homedir();
 // python3 on Linux / macOS, python or py on Windows
 const PY = process.env.PYTHON || ['python3', 'python', 'py'].find((c) => spawnSync(c, ['-c', 'import sys; assert sys.version_info >= (3, 9)']).status === 0) || 'python3';
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
-// dark blue theme: exact colours on truecolor terminals, nearest 256-colour otherwise
+// neutral theme: grey text, colour only for OK / KO / WARN.
+// Exact colours on truecolor terminals, nearest 256-colour otherwise.
 const TRUE = /truecolor|24bit/.test(process.env.COLORTERM || '');
-const rgb = (hex, c256, bg = false) => (TRUE
-  ? `${bg ? 48 : 38};2;${parseInt(hex.slice(1, 3), 16)};${parseInt(hex.slice(3, 5), 16)};${parseInt(hex.slice(5, 7), 16)}`
-  : `${bg ? 48 : 38};5;${c256}`);
-const THEME = { acc: rgb('#4f9dff', 75), dim: rgb('#7088b0', 67), rule: rgb('#1d3a6b', 24), sel: rgb('#12306b', 17, true),
-  ok: rgb('#4ade80', 78), ko: rgb('#f87171', 203), warn: rgb('#fbbf24', 220) };
+const rgb = (hex, c256) => (TRUE
+  ? `38;2;${parseInt(hex.slice(1, 3), 16)};${parseInt(hex.slice(3, 5), 16)};${parseInt(hex.slice(5, 7), 16)}`
+  : `38;5;${c256}`);
+const THEME = { dim: rgb('#8a8a8a', 245), ok: rgb('#4ade80', 78), ko: rgb('#f87171', 203), warn: rgb('#fbbf24', 220) };
 const col = (c) => (s) => (tty ? `\x1b[${c}m${s}\x1b[0m` : String(s));
-const bold = col('1'), dim = col(THEME.dim), green = col(THEME.ok), red = col(THEME.ko), cyan = col(THEME.acc), yellow = col(THEME.warn);
-const ruleCol = col(THEME.rule);
+const bold = col('1'), dim = col(THEME.dim), green = col(THEME.ok), red = col(THEME.ko), yellow = col(THEME.warn);
 
 // ---------------------------------------------------------------- helpers
 
@@ -133,13 +132,117 @@ function groups(p) {
   return r.stdout.split('\n').filter(Boolean).map((l) => { const [id, ...rest] = l.split('\t'); return { id, label: rest.join(' · ') || id }; });
 }
 
-function runTester(p, only = [], extra = []) {
+function runTester(p, only = [], extra = [], env = {}) {
   const args = [...testerArgs(p), ...(only.length ? ['--only', only.join(',')] : []), ...(tty ? ['--color'] : []), ...extra];
   if (process.env.NEXT_DEBUG) console.log(dim(`$ ${PY} ${args.join(' ')}`));
-  console.log();
-  const r = spawnSync(PY, args, { stdio: 'inherit' });
+  // ctrl-c goes to the tester only: it stops, cleans up, and the menu stays
+  const ignore = () => {};
+  process.on('SIGINT', ignore);
+  const r = spawnSync(PY, args, { stdio: 'inherit', env: { ...process.env, ...env } });
+  process.off('SIGINT', ignore);
   if (r.status === 0) askStar();
-  return r.status;
+  return r.status ?? (r.signal === 'SIGINT' ? 130 : 2);
+}
+
+// A job is what to run: { only: [ids], extra: [flags], commit: bool, keep: bool }.
+const jobText = (j) => [
+  j.commit ? 'last commit' : '',
+  j.extra.includes('--quick') ? 'quick' : j.extra.includes('--lint-only') ? 'lint only' : '',
+  j.only.includes('perf') && j.extra.includes('--size') ? `benchmark ${j.extra[j.extra.indexOf('--size') + 1]} numbers` : '',
+  j.only.length && !j.only.includes('perf') ? j.only.join(', ') : '',
+].filter(Boolean).join(' · ') || 'everything';
+
+// The last job per project folder, for "Run again" at the top of the menu.
+const LAST = path.join(HOME, '.cache', '42next-last.json');
+function lastJob(dir) {
+  try { return JSON.parse(read(LAST))[dir] || null; } catch { return null; }
+}
+function saveJob(dir, job) {
+  let all = {};
+  try { all = JSON.parse(read(LAST)); } catch { /* first one */ }
+  all[dir] = { only: job.only, extra: job.extra, commit: !!job.commit };
+  try { fs.mkdirSync(path.dirname(LAST), { recursive: true }); fs.writeFileSync(LAST, JSON.stringify(all)); } catch { /* read-only home */ }
+}
+
+// Export the last git commit of `dir` (only that folder) to a temporary
+// folder: exactly what is graded, without the files git does not have.
+function exportCommit(dir) {
+  const git = (...a) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
+  const pre = git('rev-parse', '--show-prefix');
+  if (pre.status !== 0) return { error: 'this folder is not in a git repository' };
+  const head = git('log', '-1', '--format=%h %s');
+  if (head.status !== 0) return { error: 'no commit yet' };
+  const prefix = pre.stdout.trim().replace(/\/$/, '');
+  const ar = spawnSync('git', ['-C', dir, 'archive', '--format=tar', prefix ? `HEAD:${prefix}` : 'HEAD'], { maxBuffer: 1 << 30 });
+  if (ar.status !== 0) return { error: String(ar.stderr).trim() || 'git archive failed' };
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '42next-commit-'));
+  const x = spawnSync('tar', ['-x', '-C', tmp], { input: ar.stdout });
+  if (x.status !== 0) { fs.rmSync(tmp, { recursive: true, force: true }); return { error: 'tar failed' }; }
+  const dirty = git('status', '--porcelain', '--', '.').stdout.split('\n').filter(Boolean).length;
+  const up = git('rev-list', '--count', '@{u}..HEAD');
+  return { tmp, head: head.stdout.trim(), dirty, ahead: up.status === 0 ? +up.stdout.trim() : null };
+}
+const inGit = (dir) => spawnSync('git', ['-C', dir, 'rev-parse', '--is-inside-work-tree'], { encoding: 'utf8' }).stdout.trim() === 'true';
+
+// Run a job. Returns { status, failed } where failed is the list of the
+// group ids that failed, or null when the tester could not tell.
+function runJob(p, job) {
+  saveJob(p.dir, job);
+  const out = path.join(os.tmpdir(), `42next-failed-${process.pid}`);
+  const env = { NEXT42_FAILED: out };
+  let target = p, exp = null;
+  if (job.commit) {
+    exp = exportCommit(p.dir);
+    if (exp.error) { console.log(red(`\n cannot test the last commit: ${exp.error}`)); return { status: 2, failed: null }; }
+    console.log(bold(`\n testing the last commit: ${exp.head}`));
+    if (exp.dirty) console.log(yellow(` ${exp.dirty} file(s) changed since this commit: not tested (commit them)`));
+    if (exp.ahead === null) console.log(yellow(' no remote branch: nothing is pushed yet'));
+    else if (exp.ahead) console.log(yellow(` ${exp.ahead} commit(s) not pushed yet (git push)`));
+    target = { ...p, dir: exp.tmp };
+    env.NEXT42_PROJECT_LABEL = `${short(p.dir)}  @ ${exp.head.split(' ')[0]}`;
+  }
+  console.log(dim(' ctrl-c stops the test and brings you back'));
+  try { fs.rmSync(out, { force: true }); } catch { /* nothing */ }
+  const status = runTester(target, job.only, [...job.extra, ...(job.keep ? ['--keep'] : [])], env);
+  if (exp) fs.rmSync(exp.tmp, { recursive: true, force: true });
+  let failed = null;
+  try {
+    const lines = read(out).split('\n').filter(Boolean);
+    failed = fs.existsSync(out) && !lines.includes('*') ? lines : null;
+    fs.rmSync(out, { force: true });
+  } catch { /* no result file */ }
+  return { status, failed };
+}
+
+// Files whose change re-runs the tests in watch mode.
+const WATCHED = /\.(c|h|py|json|txt|md)$|^Makefile$/;
+function snapshot(dir, acc = []) {
+  for (const n of ls(dir)) {
+    const p = path.join(dir, n);
+    let st; try { st = fs.statSync(p); } catch { continue; }
+    if (st.isDirectory()) { if (!SKIP.has(n) && !GARBAGE_DIRS.has(n) && !n.startsWith('.')) snapshot(p, acc); } else if (WATCHED.test(n)) acc.push(`${p}:${st.mtimeMs}:${st.size}`);
+  }
+  return acc.join('\n');
+}
+
+// Re-run the job each time a source file is saved. q or enter stops.
+async function watch(p, job) {
+  for (;;) {
+    process.stdout.write(CLEAR);
+    runJob(p, { ...job, keep: false });
+    const before = snapshot(p.dir);
+    if (!process.stdin.isTTY) return 'menu';
+    process.stdout.write('\n' + dim(` watching ${short(p.dir)}: save a file to run again   r now   q stop `));
+    const why = await new Promise((res) => {
+      const stdin = process.stdin;
+      const done = (v) => { clearInterval(t); stdin.off('data', onKey); stdin.setRawMode(false); stdin.pause(); res(v); };
+      const onKey = (b) => { const k = b.toString(); if (k === '\x03') { process.stdout.write('\n'); process.exit(130); } if (k === 'r') done('run'); else if (k === 'q' || k === '\r' || k === '\x1b' || k === '\x1b[D') done('stop'); };
+      const t = setInterval(() => { if (snapshot(p.dir) !== before) done('run'); }, 500);
+      stdin.setRawMode(true); stdin.resume(); stdin.on('data', onKey);
+    });
+    if (why === 'stop') { console.log(); return 'menu'; }
+    await new Promise((r) => setTimeout(r, 300));   // let the editor finish writing
+  }
 }
 
 // One quiet line after a fully green run, at most once a week.
@@ -182,7 +285,7 @@ async function cleanProject(dir) {
 }
 
 async function cleanPc() {
-  const script = path.join(ROOT, 'clean-pc.sh');
+  const script = path.join(__dirname, 'clean-pc.sh');
   console.log(bold('\nClean the caches in your home folder:'));
   console.log(read(script).split('\n').filter((l) => l.startsWith('# -')).map((l) => '  ' + l.slice(4)).join('\n'));
   if (await confirm('Run the cleanup?')) spawnSync('bash', [script], { stdio: 'inherit', shell: process.platform === 'win32' });
@@ -190,6 +293,21 @@ async function cleanPc() {
 }
 
 // ---------------------------------------------------------------- terminal UI
+
+const strip = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, '');
+const fit = (s, n) => (s.length <= n ? s : n < 2 ? s.slice(0, Math.max(0, n)) : s.slice(0, n - 1) + '…');
+// Shorten a path from the middle and keep its end: ~/…/cc/libft
+function fitPath(p, n) {
+  if (p.length <= n) return p;
+  const parts = p.split('/');
+  let tail = parts.pop();
+  while (parts.length > 1 && `${parts[0]}/…/${parts[parts.length - 1]}/${tail}`.length <= n) tail = `${parts.pop()}/${tail}`;
+  const s = `${parts[0]}/…/${tail}`;
+  return s.length <= n ? s : '…' + p.slice(p.length - n + 1);
+}
+
+const CLEAR = '\x1b[H\x1b[2J';
+if (tty) process.on('exit', () => process.stdout.write('\x1b[?25h'));
 
 function key() {
   return new Promise((res) => {
@@ -199,56 +317,82 @@ function key() {
   });
 }
 
-// Arrow keys / j k, Enter, 1-9 to jump, q or Esc to go back.
-// multi: Space toggles, Enter validates.
-async function select(title, items, { multi = false, hint = '' } = {}) {
-  if (!process.stdin.isTTY) return lineSelect(title, items);
-  let i = 0;
+// One screen, no frame:
+//    42next · libft · C
+//    ~/…/cc/libft
+//
+//    SECTION
+//    ▸ 1  Label       hint
+//
+//    ↑↓ move   enter run   q back
+// items: { label, hint, value } to select, { section } for a heading,
+// { gap: true } for an empty line. Returns the value, or null on q / Esc.
+// multi: space ticks, enter returns the ticked values (or the current one).
+// state: { pos } keeps the cursor where it was when you come back.
+async function select({ title, sub = '', tag = '', items, multi = false, enter = 'select', back = 'back', state = {} }) {
+  if (!process.stdin.isTTY) { const v = await lineSelect(title, items); return multi && v !== null ? [v] : v; }
+  const pick = items.map((it, n) => (it.value !== undefined ? n : -1)).filter((n) => n >= 0);
+  const I = Math.max(40, Math.min(process.stdout.columns || 80, 78)) - 2;
+  const row = (txt = '') => ' ' + txt;
+  const labelW = Math.min(Math.max(...pick.map((n) => items[n].label.length)) + 2, Math.floor(I / 2));
+  // the screen lines of the list, a heading gets an empty line above it
+  const lines = [];
+  items.forEach((it, n) => {
+    if (it.section !== undefined && lines.length) lines.push({ blank: true });
+    lines.push(it.gap ? { blank: true } : { n });
+  });
+  const head = ['42next', title, tag].filter(Boolean);
+  let i = Math.min(state.pos || 0, pick.length - 1);
   const on = new Set();
-  const width = Math.min(process.stdout.columns || 80, 90);
-  const rule = ruleCol('─'.repeat(width));
-  const labelW = Math.min(Math.max(...items.map((it) => it.label.length)) + 2, 40);
+  if (tty) process.stdout.write('\x1b[?25l');
   for (;;) {
-    process.stdout.write('\x1b[2J\x1b[H');
-    console.log(` ${bold(cyan('42next'))}${hint ? dim('  ·  ' + hint) : ''}`);
-    console.log(rule);
-    console.log(` ${bold(title)}\n`);
-    const rows = process.stdout.rows ? process.stdout.rows - 8 : 30;
-    const top = Math.max(0, Math.min(i - Math.floor(rows / 2), items.length - rows));
-    items.slice(top, top + rows).forEach((it, k) => {
-      const n = top + k;
-      const mark = multi ? (on.has(n) ? green('◉ ') : dim('○ ')) : '';
-      const num = !multi && n < 9 ? `${n + 1}` : ' ';
-      const label = it.label.padEnd(labelW);
-      const hintTxt = it.hint ? it.hint.slice(0, Math.max(0, width - labelW - 10)) : '';
-      if (n === i && tty) {
-        // the selected row is a full-width navy bar
-        const plain = ` ▸ ${num} ${multi ? (on.has(n) ? '◉ ' : '○ ') : ''}${label}${hintTxt}`;
-        const pad = ' '.repeat(Math.max(0, width - plain.length));
-        const s = THEME.sel;
-        console.log(`\x1b[${s}m \x1b[${THEME.acc}m▸ \x1b[${THEME.dim}m${num} \x1b[${THEME.ok}m${multi ? (on.has(n) ? '◉ ' : '○ ') : ''}\x1b[1;${THEME.acc}m${label}\x1b[22m\x1b[${THEME.dim}m${hintTxt}${pad}\x1b[0m`);
-      } else if (n === i) console.log(` > ${num} ${mark}${label}${hintTxt}`);
-      else console.log(`   ${dim(num)} ${mark}${label}${hintTxt ? dim(hintTxt) : ''}`);
+    const cur = pick[i];
+    const keys = ['↑↓ move', ...(multi ? ['space tick', 'a all'] : []), `enter ${enter}`, ...(multi ? [] : ['1-9 jump']), `q ${back}`];
+    const foot = keys.join('   ') + (multi && on.size ? `   ${on.size} ticked` : '');
+    const fixed = 5 + (sub ? 1 : 0);
+    const avail = Math.max(5, (process.stdout.rows || 30) - fixed - 1);
+    const at = lines.findIndex((l) => l.n === cur);
+    const start = lines.length <= avail ? 0 : Math.max(0, Math.min(at - Math.floor(avail / 2), lines.length - avail));
+    const shown = lines.slice(start, start + avail);
+    const out = ['', row(fit(head.join(' · '), I).split(' · ').map((h, k) => (k === 1 ? bold(h) : dim(h))).join(dim(' · ')))];
+    if (sub) out.push(row(dim(fitPath(sub, I))));
+    out.push('');
+    shown.forEach((l, k) => {
+      if (k === 0 && start > 0) return out.push(row(dim('  ↑ more')));
+      if (k === shown.length - 1 && start + avail < lines.length) return out.push(row(dim('  ↓ more')));
+      if (l.blank) return out.push('');
+      const it = items[l.n];
+      if (it.section !== undefined) return out.push(row(dim(it.section.toUpperCase())));
+      const pos = pick.indexOf(l.n);
+      const sel = l.n === cur;
+      const mark = multi ? (on.has(pos) ? '◉ ' : '○ ') : (pos < 9 ? `${pos + 1} ` : '  ');
+      const label = fit(it.label, labelW - 2).padEnd(labelW);
+      const room = I - 5 - labelW;
+      const hint = it.hint && room >= 6 ? fit(it.hint, room) : '';
+      const m = multi && on.has(pos) ? green(mark) : dim(mark);
+      out.push(row(`${sel ? bold('▸') : ' '} ${m} ${sel ? bold(label) : label}${hint ? dim(hint) : ''}`));
     });
-    if (items.length > rows) console.log(dim(`   ... ${items.length} items, scroll with ↑↓`));
-    console.log('\n' + rule);
-    console.log(dim(` ↑↓ move · enter select${multi ? ` · space tick · a all · ${on.size} ticked` : ' · 1-9 jump'} · q back`));
+    out.push('', row(dim(fit(foot, I))));
+    process.stdout.write(CLEAR + out.join('\n') + '\n');
     const k = await key();
     if (k === '\x03') { process.stdout.write('\n'); process.exit(130); }
-    if (k === 'q' || k === '\x1b') return null;
-    if (k === '\x1b[A' || k === 'k') i = (i - 1 + items.length) % items.length;
-    else if (k === '\x1b[B' || k === 'j') i = (i + 1) % items.length;
-    else if (multi && k === ' ') { on.has(i) ? on.delete(i) : on.add(i); }
-    else if (multi && k === 'a') { if (on.size === items.length) on.clear(); else items.forEach((_, n) => on.add(n)); }
-    else if (k === '\r' || k === '\n') {
-      process.stdout.write('\x1b[2J\x1b[H');
-      return multi ? (on.size ? [...on].map((n) => items[n].value) : [items[i].value]) : items[i].value;
-    } else if (!multi && /^[1-9]$/.test(k) && +k <= items.length) { process.stdout.write('\x1b[2J\x1b[H'); return items[+k - 1].value; }
+    state.pos = i;
+    // q, Esc, ← or backspace: back. →: same as enter.
+    if (k === 'q' || k === '\x1b' || k === '\x1b[D' || k === '\x7f' || k === '\b') { process.stdout.write(CLEAR); return null; }
+    if (k === '\x1b[A' || k === 'k') i = (i - 1 + pick.length) % pick.length;
+    else if (k === '\x1b[B' || k === 'j') i = (i + 1) % pick.length;
+    else if (multi && k === ' ') { if (on.has(i)) on.delete(i); else on.add(i); }
+    else if (multi && k === 'a') { if (on.size === pick.length) on.clear(); else pick.forEach((_, n) => on.add(n)); }
+    else if (k === '\r' || k === '\n' || k === '\x1b[C') {
+      process.stdout.write(CLEAR);
+      return multi ? (on.size ? [...on].sort((a, b) => a - b).map((n) => items[pick[n]].value) : [items[cur].value]) : items[cur].value;
+    } else if (!multi && /^[1-9]$/.test(k) && +k <= pick.length) { state.pos = +k - 1; process.stdout.write(CLEAR); return items[pick[+k - 1]].value; }
   }
 }
 
 function prompt(q) {
   return new Promise((res) => {
+    if (tty) process.stdout.write('\x1b[?25h');
     process.stdout.write(q);
     if (process.stdin.readableEnded) return res('');
     process.stdin.resume(); process.stdin.setEncoding('utf8');
@@ -260,10 +404,13 @@ function prompt(q) {
 
 async function lineSelect(title, items) {
   console.log(bold(title));
-  items.forEach((it, n) => console.log(`  ${n + 1}. ${it.label}`));
-  const a = await prompt('> ');
-  const n = parseInt(a, 10);
-  return n >= 1 && n <= items.length ? items[n - 1].value : null;
+  const pick = [];
+  for (const it of items) {
+    if (it.section !== undefined) console.log(dim(it.section));
+    else if (it.value !== undefined) { pick.push(it); console.log(`  ${pick.length}. ${it.label}`); }
+  }
+  const n = parseInt(await prompt('> '), 10);
+  return n >= 1 && n <= pick.length ? pick[n - 1].value : null;
 }
 
 async function confirm(q) {
@@ -274,86 +421,176 @@ async function confirm(q) {
   return k === 'o' || k === 'y' || k === 'O' || k === 'Y';
 }
 
+// After a clean: back to the menu or quit.
 async function pause() {
   if (!process.stdin.isTTY) return 'menu';
-  process.stdout.write(dim('\nenter menu · r run again · q quit '));
+  process.stdout.write('\n' + dim(' enter back   q quit') + ' ');
   const k = await key();
   console.log();
   if (k === 'q' || k === '\x03') process.exit(0);
-  return k === 'r' ? 'again' : 'menu';
+  return 'menu';
+}
+
+// After a run: what next. Returns 'menu', 'pick', or the next job to run.
+async function afterRun(p, job, res) {
+  if (!process.stdin.isTTY) return 'menu';
+  const failed = res.failed && res.failed.length ? res.failed : null;
+  const keys = [['r', 'run again']];
+  if (failed) keys.push(['f', `only the ${failed.length} failed part${failed.length > 1 ? 's' : ''}`]);
+  keys.push(['c', 'choose other parts']);
+  if (!job.commit) keys.push(['w', 'watch: run again on save']);
+  if (p.kind === 'c') keys.push(['k', 'keep the build folder']);
+  keys.push(['enter', 'back'], ['q', 'quit']);
+  const txt = keys.map(([k, what]) => `${bold(k)} ${dim(what)}`);
+  const half = Math.ceil(txt.length / 2);
+  process.stdout.write(`\n ${txt.slice(0, half).join('   ')}\n ${txt.slice(half).join('   ')} `);
+  for (;;) {
+    const k = await key();
+    if (k === 'q' || k === '\x03') { console.log(); process.exit(0); }
+    if (k === '\r' || k === '\n' || k === '\x1b' || k === '\x1b[D' || k === '\x7f') { console.log(); return 'menu'; }
+    if (k === 'r') return { ...job, keep: false };
+    if (k === 'f' && failed) return { ...job, only: failed, keep: false };
+    if (k === 'c') return 'pick';
+    if (k === 'w' && !job.commit) return { ...job, watch: true, keep: false };
+    if (k === 'k' && p.kind === 'c') return { ...job, keep: true };
+  }
 }
 
 // ---------------------------------------------------------------- menus
 
-async function run(p, only, extra = []) {
+// what --quick leaves out, per tester (no entry: the tester has no quick mode)
+const QUICK = {
+  libft: 'no valgrind', printf: 'no valgrind, no ASan', gnl: 'no valgrind, fewer BUFFER_SIZE',
+  push_swap: 'no valgrind, fewer benchmark runs',
+};
+const CHECK_IDS = new Set(['files', 'norm', 'makefile', 'functions', 'readme', 'repo']);
+
+// Run a job, then whatever is picked after it, until back or pick.
+async function run(p, job) {
   for (;;) {
-    runTester(p, only, extra);
-    if ((await pause()) !== 'again') return;
+    if (job.watch) { const { watch: _, ...j } = job; await watch(p, j); return 'menu'; }
+    process.stdout.write(CLEAR);
+    const res = runJob(p, job);
+    const next = await afterRun(p, job, res);
+    if (typeof next === 'string') return next;
+    job = next;
   }
 }
 
+// The parts of a project, under headings: checks, then the tests.
+function partItems(p, gs) {
+  const secs = new Map();
+  for (const g of gs) {
+    if (g.id === 'perf') continue;  // has its own entry: Custom benchmark
+    const sec = CHECK_IDS.has(g.id) ? 'Checks' : p.kind === 'py' ? 'Exercises' : /^ft_/.test(g.id) ? 'Functions' : 'Tests';
+    let hint = g.label.startsWith(g.id + ' · ') ? g.label.slice(g.id.length + 3) : g.label;
+    if (hint === g.id || hint === `tests for ${g.id}`) hint = '';
+    if (!secs.has(sec)) secs.set(sec, []);
+    secs.get(sec).push({ label: g.id, hint, value: g.id });
+  }
+  return [...secs].flatMap(([sec, its]) => [{ section: sec }, ...its]);
+}
+
 async function projectMenu(p) {
+  const tag = p.kind === 'py' ? 'Python' : 'C';
+  const gs = groups(p);
+  if (gs === null) { console.log(red(`Tester ${p.tester} is missing.`)); await pause(); return; }
+  const n = gs.filter((g) => g.id !== 'perf').length;
+  const parts = partItems(p, gs);
+  const git = inGit(p.dir);
+  const job = (only = [], extra = [], more = {}) => ({ only, extra, ...more });
+  const menuState = {}, pickState = {}, watchState = {};
+
+  // after a run, `c` opens the part picker straight away
+  let next = null;
   for (;;) {
-    const gs = groups(p);
-    if (gs === null) { console.log(red(`Tester ${p.tester} is missing.`)); await pause(); return; }
-    const items = [];
+    const items = [{ section: 'Test' }];
+    const last = lastJob(p.dir);
+    if (last) items.push({ label: 'Run again', hint: jobText(last), value: ['job', last] });
     if (p.current) {
       const ex = p.spec.exercises.find((e) => e.id === p.current);
-      items.push({ label: `Test ${p.current} (you are here)`, hint: ex.file, value: ['only', [p.current]] });
+      items.push({ label: `Test ${p.current}`, hint: `you are here · ${ex.file}`, value: ['job', job([p.current])] });
     }
-    items.push({ label: 'Run everything', value: ['only', []] });
-    items.push({ label: 'Quick check', hint: 'no valgrind, no big benchmarks', value: ['quick'] });
-    items.push({ label: p.kind === 'py' ? 'Pick an exercise' : 'Pick a part / a function', hint: `${gs.length} available`, value: ['one'] });
-    items.push({ label: 'Pick several', value: ['multi'] });
-    if (p.kind === 'py') items.push({ label: 'Lint only (flake8 + mypy)', value: ['lint'] });
-    if (p.id === 'push_swap') items.push({ label: 'Custom benchmark (size + runs)', value: ['perf'] });
-    items.push({ label: 'Clean the project', hint: '__pycache__, .mypy_cache, .o, a.out...', value: ['clean'] });
-    items.push({ label: 'Back to projects', value: ['back'] });
+    items.push({ label: 'Test everything', value: ['job', job()] });
+    if (p.kind === 'py' || QUICK[p.id]) items.push({ label: 'Quick test', hint: p.kind === 'py' ? 'no mypy' : QUICK[p.id], value: ['job', job([], ['--quick'])] });
+    items.push({ label: 'Choose what to test', hint: `${n} ${p.kind === 'py' ? 'exercises' : 'parts'}`, value: ['pick'] });
+    items.push({ label: 'Watch mode', hint: 'runs again each time you save', value: ['watch'] });
+    if (p.kind === 'py') items.push({ label: 'Lint only', hint: 'flake8 + mypy', value: ['job', job([], ['--lint-only'])] });
+    if (p.id === 'push_swap') items.push({ label: 'Custom benchmark', hint: 'you pick the size and the runs', value: ['perf'] });
+    items.push({ section: 'Project' });
+    if (git) items.push({ label: 'Test the last commit', hint: 'only what git has, like the moulinette', value: ['job', job([], [], { commit: true })] });
+    items.push({ label: 'Clean the project', hint: p.kind === 'py' ? '__pycache__, .mypy_cache' : '.o, a.out, core files', value: ['clean'] });
+    items.push({ gap: true }, { label: 'Back', hint: 'all projects, another folder', value: ['back'] });
 
-    const c = await select(`${p.name}  ${dim(short(p.dir))}`, items, { hint: p.kind === 'py' ? 'Python' : 'C' });
+    const c = next === 'pick' ? ['pick'] : await select({ title: p.name, sub: short(p.dir), tag, items, enter: 'run', state: menuState });
+    next = null;
     if (!c || c[0] === 'back') return;
-    if (c[0] === 'only') await run(p, c[1]);
-    else if (c[0] === 'quick') await run(p, [], ['--quick']);
-    else if (c[0] === 'lint') await run(p, [], ['--lint-only']);
+    if (c[0] === 'job') next = await run(p, c[1]);
     else if (c[0] === 'clean') await cleanProject(p.dir);
-    else if (c[0] === 'one' || c[0] === 'multi') {
-      const pick = await select(c[0] === 'one' ? 'What do you want to test?' : 'Tick what you want to test', gs.map((g) => ({ label: g.id, hint: g.label !== g.id ? g.label : '', value: g.id })), { multi: c[0] === 'multi' });
-      if (pick) await run(p, Array.isArray(pick) ? pick : [pick]);
+    else if (c[0] === 'pick') {
+      const pick = await select({ title: p.name, tag: 'choose what to test', sub: 'enter runs the current line · space ticks several', items: parts, multi: true, enter: 'run', state: pickState });
+      if (pick) next = await run(p, job(pick));
+    } else if (c[0] === 'watch') {
+      const pick = await select({
+        title: p.name, tag: 'watch mode', sub: 'what to run again each time you save a file', multi: true, enter: 'start', state: watchState,
+        items: [{ label: 'everything', value: '*' }, ...parts],
+      });
+      if (pick) next = await run(p, job(pick.includes('*') ? [] : pick, [], { watch: true }));
     } else if (c[0] === 'perf') {
-      const size = await prompt('Stack size (e.g. 100): ');
-      const runs = await prompt('Number of runs (e.g. 50): ');
-      await run(p, ['perf'], ['--size', size || '100', '--runs', runs || '20']);
+      const num = (s, d) => (/^\d+$/.test(s) ? s : d);
+      const size = num(await prompt('Stack size [100]: '), '100');
+      const runs = num(await prompt('Number of runs [20]: '), '20');
+      next = await run(p, job(['perf'], ['--size', size, '--runs', runs]));
     }
   }
 }
 
 async function mainMenu(start) {
   let dir = start;
+  let auto = true;    // a single project found: open it straight away
+  const mainState = {};
   for (;;) {
     const found = detect(dir);
-    const items = found.map((f) => ({ label: f.name, hint: short(f.dir) + (f.current ? `  (you are in ${f.current})` : ''), value: ['proj', f] }));
+    if (auto && found.length === 1) { auto = false; await projectMenu(found[0]); continue; }
+    auto = false;
+    const where = (f) => {
+      const rel = path.relative(dir, f.dir);
+      const at = !rel ? 'this folder' : rel.startsWith('..') ? short(f.dir) : rel + '/';
+      return at + (f.current ? ` · you are in ${f.current}` : '');
+    };
+    const items = [];
+    if (found.length) items.push({ section: 'Projects' }, ...found.map((f) => ({ label: f.name, hint: where(f), value: ['proj', f] })));
+    items.push({ section: 'Other' });
     items.push({ label: 'Open another folder', value: ['dir'] });
-    items.push({ label: 'Pick the project type myself', hint: 'if detection got it wrong', value: ['force'] });
-    items.push({ label: 'Clean caches on this computer', hint: 'pip, mypy, VS Code, Discord, old versions...', value: ['pc'] });
-    items.push({ label: 'Quit', value: ['quit'] });
-    const title = found.length ? `Projects found around ${short(dir)}` : `No 42 project found in ${short(dir)}`;
-    const c = await select(title, items);
+    items.push({ label: 'Choose the project type', hint: 'if detection is wrong', value: ['force'] });
+    items.push({ label: 'Clean this computer', hint: 'caches, trash, old versions', value: ['pc'] });
+    items.push({ gap: true }, { label: 'Quit', value: ['quit'] });
+    const title = found.length ? `${found.length} project${found.length > 1 ? 's' : ''} found` : 'No 42 project found here';
+    const c = await select({ title, sub: short(dir), items, enter: 'open', back: 'quit', state: mainState });
     if (!c || c[0] === 'quit') return;
     if (c[0] === 'proj') await projectMenu(c[1]);
     else if (c[0] === 'pc') await cleanPc();
     else if (c[0] === 'force') {
       const all = [
+        { section: 'C' },
         ...C_PROJECTS.map((pr) => ({ label: pr.name, value: { ...pr, kind: 'c', dir } })),
-        ...SPECS.map((sp) => ({ label: sp.title, hint: 'Python', value: { id: sp.project, name: sp.title, tester: 'py/run_tests.py', spec: sp, kind: 'py', dir } })),
+        { section: 'Python' },
+        ...SPECS.map((sp) => ({ label: sp.title, value: { id: sp.project, name: sp.title, tester: 'py/run_tests.py', spec: sp, kind: 'py', dir } })),
       ];
-      const pick = await select(`Which project is ${short(dir)}?`, all);
+      const pick = await select({ title: 'Which project is this folder?', sub: short(dir), items: all });
       if (pick) await projectMenu(pick);
-    }
-    else if (c[0] === 'dir') {
+    } else if (c[0] === 'dir') {
       const subs = subdirs(dir).map((d) => ({ label: path.basename(d) + '/', value: d }));
-      const pick = await select(`Folder (from ${short(dir)})`, [{ label: '.. (parent)', value: path.dirname(dir) }, { label: 'Type a path', value: '?' }, ...subs]);
-      if (pick === '?') { const t = await prompt('Path: '); const r = path.resolve(dir, t.replace(/^~/, HOME)); if (isDir(r)) dir = r; }
-      else if (pick) dir = pick;
+      const pick = await select({
+        title: 'Open a folder', sub: short(dir), enter: 'open',
+        items: [{ label: '..', hint: 'parent folder', value: path.dirname(dir) }, { label: 'Type a path', value: '?' },
+          ...(subs.length ? [{ section: 'Folders' }, ...subs] : [])],
+      });
+      if (pick === '?') {
+        const t = await prompt('Path: ');
+        const r = path.resolve(dir, t.replace(/^~/, HOME));
+        if (isDir(r)) { dir = r; auto = true; mainState.pos = 0; }
+      } else if (pick) { dir = pick; auto = true; mainState.pos = 0; }
     }
   }
 }
@@ -394,6 +631,8 @@ const HELP = `${bold('42next')} - tester for 42 projects. Run it in your project
   42next <part...>         test only these parts: ft_split, ex3, c, p100...
   42next <file.py>         test the exercise of that file
   42next list              list the testable parts of the detected project
+  42next watch [part...]   run again each time you save a file
+  42next commit [part...]  test the last git commit only (what is graded)
   42next clean             clean the project (__pycache__, .mypy_cache, .o...)
   42next clean-pc          clean caches on this computer
   42next update            get the latest tests now (also automatic, once a day)
@@ -422,6 +661,8 @@ async function main() {
   const p = found[0];
   if (args[0] === 'clean') return cleanProject(p.dir);
   if (args[0] === 'list') return (groups(p) || []).forEach((g) => console.log(`${g.id.padEnd(16)} ${dim(g.label)}`));
+  if (args[0] === 'watch') return watch(p, { only: args.slice(1), extra: [] });
+  if (args[0] === 'commit') process.exit(runJob(p, { only: args.slice(1), extra: [], commit: true }).status ?? 2);
   if (args[0] === 'all') only = [];
   if (args[0] === 'quick') process.exit(runTester(p, [], ['--quick']) ?? 2);
   // a C file: test the part named like it (ft_split.c -> ft_split)

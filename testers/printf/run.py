@@ -582,6 +582,12 @@ def main():
     print(core.dim(f"random cases use seed {seed} "
                    f"(rerun the same ones with --seed {seed})"))
     rep = core.Report(verbose=args.verbose)
+    rep.alias.update({"files: ft_printf.h": "files", "norminette": "norm",
+                      "Makefile": "makefile",
+                      "external functions": "functions",
+                      "README.md": "readme", "repository": "repo",
+                      "bonus: flags and width": "bonus"})
+    rep.alias.update({lbl: g for g, lbl in CONV_GROUPS})
     if getattr(args, "quick", False):
         core.quick_skip(rep, "no valgrind / AddressSanitizer runs "
                         "(per-call leak tracking stays on)")
@@ -609,4 +615,9 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # ctrl-c: the temporary copies are removed on the way out
+        print("\nstopped (ctrl-c)")
+        sys.exit(130)

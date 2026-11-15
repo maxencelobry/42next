@@ -282,8 +282,8 @@ def group_script(rep, opts):
   The VM cannot be inspected from here. Copy check.sh into the VM and run it
   there as root (read-only, it changes nothing):
 
-    {core.cyan(scp)}
-    {core.cyan(ssh)}
+    {core.accent(scp)}
+    {core.accent(ssh)}
 
   -t is needed: with requiretty, sudo refuses to run without a terminal.
   With VirtualBox NAT, forward host port 4242 to guest port 4242 first
@@ -296,6 +296,8 @@ def main():
     args = core.parse_args("Born2beRoot tester (host side)", GROUPS)
     opts = extra_opts(args.extra)
     rep = core.Report(verbose=args.verbose)
+    rep.alias.update({"repository": "repo", "README.md": "readme",
+                      "check.sh (inside the VM)": "script"})
     if not os.path.isdir(args.project):
         print(core.red(f"project directory not found: {args.project}"))
         return 2
@@ -312,4 +314,9 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # ctrl-c: the temporary copies are removed on the way out
+        print("\nstopped (ctrl-c)")
+        sys.exit(130)

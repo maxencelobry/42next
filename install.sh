@@ -21,7 +21,7 @@ else
 fi
 
 mkdir -p "$bin"
-chmod +x "$dir/bin/42next.js" "$dir/clean-pc.sh"
+chmod +x "$dir/bin/42next.js" "$dir/bin/clean-pc.sh"
 ln -sf "$dir/bin/42next.js" "$bin/42next"
 echo "42next installed: run it in a project folder with  42next"
 

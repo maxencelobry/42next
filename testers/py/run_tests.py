@@ -56,6 +56,7 @@ import subprocess
 import sys
 import tempfile
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1203,7 +1204,8 @@ def main(argv=None):
     if only:
         exercises = [ex for ex in exercises if ex["id"] in only]
 
-    rep = core.Report(verbose=args.verbose)
+    rep = core.Report(verbose=args.verbose,
+                      group_ids={ex["id"] for ex in exercises})
     core.header(spec.get("title", spec["project"]), project,
                 spec.get("note"), args.verbose)
     if getattr(args, "quick", False):
@@ -1211,45 +1213,59 @@ def main(argv=None):
     if auto_note:
         print(core.dim(auto_note))
 
-    ran = 0
-    for ex in exercises:
-        path = os.path.join(project, ex["file"])
-        if not os.path.isfile(path):
-            rep._close()
-            print()
-            rep.skip(label(ex), ex["file"] + " not found")
-            continue
-        ran += 1
-        rep.section(label(ex))
-        for test in [] if args.lint_only else ex.get("tests", []):
-            NOTES.clear()
-            name = test.get("name", "test")
-            try:
-                status, detail = run_test(test, ex, project)
-            except Exception as exc:  # noqa: BLE001 - keep going
-                status, detail = False, \
-                    f"tester error: {exc.__class__.__name__}: {exc}"
-            if status is None:
-                rep.skip(name, detail)
-            elif not status and test.get("severity") == "warn":
-                rep.warn(name + " (advice, not fatal)", detail)
-            else:
-                rep.check(name, status, detail=detail or None)
-            for note in dict.fromkeys(NOTES):
-                rep.warn(note)
-        results = [] if args.lint_only else static_checks(ex, project)
+    def lint(ex):
         if args.lint_only:
-            results = lint_checks({**ex, "flake8": True,
-                                   "mypy": ex.get("mypy") or True}, project)
-        elif not args.no_lint:
-            results += lint_checks(ex, project, args.quick)
-        for name, status, detail in results:
-            if status == "skip":
-                rep.skip(name, detail)
-            elif status == "warn":
-                rep.warn(name, detail)
-            else:
-                rep.check(name, status == "ok", detail=detail or None)
+            return lint_checks({**ex, "flake8": True,
+                                "mypy": ex.get("mypy") or True}, project)
+        if args.no_lint:
+            return []
+        return lint_checks(ex, project, args.quick)
+
+    # flake8 + mypy take about 2s per exercise: start them all now, in the
+    # background, while the exercises run
+    present = [n for n, ex in enumerate(exercises)
+               if os.path.isfile(os.path.join(project, ex["file"]))]
+    pool = ThreadPoolExecutor(
+        max_workers=max(1, min(len(present), (os.cpu_count() or 2) // 2)))
+    lints = {n: pool.submit(lint, exercises[n]) for n in present}
+    ran = 0
+    try:
+        for n, ex in enumerate(exercises):
+            path = os.path.join(project, ex["file"])
+            if not os.path.isfile(path):
+                rep._close()
+                print()
+                rep.skip(label(ex), ex["file"] + " not found")
+                continue
+            ran += 1
+            rep.section(label(ex), gid=ex["id"])
+            for test in [] if args.lint_only else ex.get("tests", []):
+                NOTES.clear()
+                name = test.get("name", "test")
+                try:
+                    status, detail = run_test(test, ex, project)
+                except Exception as exc:  # noqa: BLE001 - keep going
+                    status, detail = False, \
+                        f"tester error: {exc.__class__.__name__}: {exc}"
+                if status is None:
+                    rep.skip(name, detail)
+                elif not status and test.get("severity") == "warn":
+                    rep.warn(name + " (advice, not fatal)", detail)
+                else:
+                    rep.check(name, status, detail=detail or None)
+                for note in dict.fromkeys(NOTES):
+                    rep.warn(note)
+            results = [] if args.lint_only else static_checks(ex, project)
+            results += lints[n].result() if n in lints else []
+            for name, status, detail in results:
+                if status == "skip":
+                    rep.skip(name, detail)
+                elif status == "warn":
+                    rep.warn(name, detail)
+                else:
+                    rep.check(name, status == "ok", detail=detail or None)
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
     if ran == 0:
         rep._close()
         print()
@@ -1260,4 +1276,9 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # ctrl-c: the temporary copies are removed on the way out
+        print("\nstopped (ctrl-c)")
+        sys.exit(130)

@@ -31,6 +31,7 @@ python3 -B run.py --project DIR [--only g1,g2] [--list] [--quick] [--verbose] [-
 - `--list` prints one `id<TAB>label` line per group. Group names are shared: `files`, `norm`, `makefile`, `functions`, `readme`, `repo`, then the tests (one group per function / conversion / exercise).
 - Output: `core.header()` line, `== section ==`, `KO`/`WARN`/`SKIP` with the exact call, expected and got, then `RESULT x/y`.
 - Exit codes: 0 all passed, 1 failure, 2 setup problem.
+- Env from the menu: `NEXT42_FAILED=path` makes `Report.finish()` write the failed group ids (one per line, `*` if a failed section has no group id). Map a section to its group with `rep.section(name, gid=...)` or `rep.alias`. `NEXT42_PROJECT_LABEL` replaces the path in `core.header()` (last-commit runs).
 - Python projects: `testers/py/run_tests.py` plus one JSON spec per subject in `testers/py/specs/`.
 
 ## Checks before a commit

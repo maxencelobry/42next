@@ -6,10 +6,12 @@ that scenario). The runner is linked with -Wl,--wrap=read so the tests can
 count the bytes read and make read() fail on purpose.
 """
 
+import itertools
 import os
 import random
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "common"))
@@ -153,7 +155,7 @@ class Ctx:
         self.args = args
         self.bins = {}
         self.errors = {}
-        self.counter = 0
+        self.counter = itertools.count(1)   # thread-safe
         self.fx = make_fixtures()
         self.fxdir = ws.tmp("fixtures")
         os.makedirs(self.fxdir, exist_ok=True)
@@ -186,14 +188,19 @@ class Ctx:
                 text.replace(self.ws.dir + "/", ""))
         return self.bins.get(key)
 
+    def prebuild(self, keys):
+        """Compile several runners at the same time: (bs, bonus, asan)."""
+        todo = [k for k in dict.fromkeys(keys)
+                if k not in self.bins and k not in self.errors]
+        parallel(lambda k: self.binary(*k), todo)
+
     def run(self, bs, mode, *margs, stdin=b"", bonus=False, vg=False,
             asan=False):
         """-> (Run, items, info, leaks) ; Run is None if it did not build."""
         b = self.binary(bs, bonus, asan)
         if not b:
             return None, [], {}, None
-        self.counter += 1
-        out = self.ws.tmp(f"out_{self.counter}")
+        out = self.ws.tmp(f"out_{next(self.counter)}")
         cmd = [b, mode, out, *map(str, margs)]
         leaks = None
         if vg:
@@ -324,11 +331,25 @@ def asan_report(err):
     return re.sub(r"/\S*/42next-gnl-[^/]+/(project/)?", "", text)
 
 
-def file_case(ctx, shown, bs, name, bonus=False):
+def parallel(func, jobs):
+    """func(job) for every job, several at a time, results in order."""
+    if not jobs:
+        return []
+    workers = max(1, min(len(jobs), os.cpu_count() or 2))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(func, jobs))
+
+
+def file_run(ctx, bs, name, bonus=False):
+    exp = split_lines(ctx.fx[name])
+    return ctx.run(bs, "read", ctx.fpath(name), len(exp) + 5, bonus=bonus)
+
+
+def file_case(ctx, shown, bs, name, bonus=False, result=None):
+    """result: an earlier file_run() of the same case, if already run."""
     data = ctx.fx[name]
     exp = split_lines(data)
-    res, items, info, _ = ctx.run(bs, "read", ctx.fpath(name), len(exp) + 5,
-                                  bonus=bonus)
+    res, items, info, _ = result or file_run(ctx, bs, name, bonus)
     label = f"{bs_name(bs)}  {name}  ({describe(data)})"
     prob = run_problem(res, bs)
     probs = compare_lines(exp, items)
@@ -460,16 +481,24 @@ def group_sizes(ctx, sizes):
     rep = ctx.rep
     rep.section("BUFFER_SIZE values")
     shown = Shown(rep)
+    ctx.prebuild([(bs, False, False) for bs in sizes])
+    jobs = []
     for bs in sizes:
-        if not check_build(ctx, bs):
+        if not ctx.binary(bs):
             continue
-        rep.check(f"compiles with {bs_name(bs)}", True)
         names = BASIC + LONG
         if bs is not None and bs >= 1000000:
             names = ["one_line_no_nl", "three_lines", "three_lines_no_nl",
                      "lengths_1_to_10001", "long_line_30000_nl"]
-        for name in names:
-            file_case(ctx, shown, bs, name)
+        jobs += [(bs, name) for name in names]
+    results = dict(zip(jobs, parallel(lambda j: file_run(ctx, *j), jobs)))
+    # report in the same order as before
+    for bs in sizes:
+        if not check_build(ctx, bs):
+            continue
+        rep.check(f"compiles with {bs_name(bs)}", True)
+        for job in [j for j in jobs if j[0] == bs]:
+            file_case(ctx, shown, bs, job[1], result=results[job])
     shown.close()
 
 
@@ -649,6 +678,10 @@ def group_leaks(ctx):
     if all(os.path.isfile(ctx.ws.path(f)) for f in BONUS):
         targets.append((True, None))
     shown = Shown(rep)
+    # build first, then run every case in parallel
+    ctx.prebuild([(bs, bonus, not use_vg) for bonus, _ in targets
+                  for bs in MEM_SIZES])
+    jobs = []
     for bonus, _ in targets:
         for bs in MEM_SIZES:
             if not check_build(ctx, bs, bonus, asan=not use_vg):
@@ -663,26 +696,33 @@ def group_leaks(ctx):
             tag = (" (bonus)" if bonus else "")
             for what, margs, stdin in runs:
                 label = f"{bs_name(bs)}{tag}  {what}: no leak, no memory error"
-                if use_vg:
-                    res, _, _, leaks = ctx.run(bs, *margs, stdin=stdin,
-                                               bonus=bonus, vg=True)
-                    if res is None or leaks is None:
-                        continue
-                    if res.timed_out or res.crashed:
-                        shown.ko(label, res.status())
-                    elif not leaks.clean:
-                        shown.ko(label, leaks.describe() + "\n"
-                                 + leaks.first_error())
-                    else:
-                        rep.check(label, True)
-                else:
-                    res, _, _, _ = ctx.run(bs, *margs, stdin=stdin,
-                                           bonus=bonus, asan=True)
-                    prob = run_problem(res, bs)
-                    if prob:
-                        shown.ko(label.replace("no leak, ", ""), prob)
-                    else:
-                        rep.check(label.replace("no leak, ", ""), True)
+                jobs.append((label, bs, bonus, margs, stdin))
+
+    def one(job):
+        _, bs, bonus, margs, stdin = job
+        if use_vg:
+            return ctx.run(bs, *margs, stdin=stdin, bonus=bonus, vg=True)
+        return ctx.run(bs, *margs, stdin=stdin, bonus=bonus, asan=True)
+
+    results = parallel(one, jobs)
+    # report in the same order as before
+    for (label, bs, _, _, _), (res, _, _, leaks) in zip(jobs, results):
+        if use_vg:
+            if res is None or leaks is None:
+                continue
+            if res.timed_out or res.crashed:
+                shown.ko(label, res.status())
+            elif not leaks.clean:
+                shown.ko(label, leaks.describe() + "\n"
+                         + leaks.first_error())
+            else:
+                rep.check(label, True)
+        else:
+            prob = run_problem(res, bs)
+            if prob:
+                shown.ko(label.replace("no leak, ", ""), prob)
+            else:
+                rep.check(label.replace("no leak, ", ""), True)
     shown.close()
 
 
@@ -769,6 +809,20 @@ def group_bonus(ctx):
 
 # --------------------------------------------------------------------------
 
+# section title -> group id ("tests", the build failure, has none)
+SECTION_GROUPS = {"norminette": "norm",
+                  "functions and global variables": "functions",
+                  "files": "files",
+                  "basic reading (BUFFER_SIZE=42)": "basic",
+                  "BUFFER_SIZE values": "buffer_sizes",
+                  "standard input and pipes": "stdin",
+                  "edge cases": "edge",
+                  "memory: valgrind / AddressSanitizer": "leaks",
+                  "bonus: several fd at the same time": "bonus",
+                  "README.md": "readme",
+                  "repository": "repo"}
+
+
 def main():
     args = core.parse_args("get_next_line tester (42next)", GROUPS)
     project = args.project
@@ -782,6 +836,7 @@ def main():
     args.quick = quick
     core.header("get_next_line tester", project)
     rep = core.Report(verbose=args.verbose)
+    rep.alias.update(SECTION_GROUPS)
     sizes = QUICK_SIZES if quick else SIZES
     if quick:
         core.quick_skip(rep, "no valgrind / AddressSanitizer runs, "
@@ -840,4 +895,9 @@ def check_readme_algo(rep, project):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # ctrl-c: the temporary copies are removed on the way out
+        print("\nstopped (ctrl-c)")
+        sys.exit(130)

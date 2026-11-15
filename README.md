@@ -77,12 +77,18 @@ Run it in your project folder, in `ex3/`, or in a parent folder.
 | `42next ft_split ex3 p` | test only these parts |
 | `42next ft_split.c` | test the part of that file |
 | `42next list` | list what can be tested |
+| `42next watch ft_split` | test again each time you save a file |
+| `42next commit` | test the last git commit only: what is graded |
 | `42next clean` | delete `__pycache__`, `.mypy_cache`, `.o`, `a.out`... in the project |
 | `42next clean-pc` | free disk space: caches, old versions, trash |
 | `42next update` | get the latest tests now (also automatic, once a day) |
 | `42next help` | show this list |
 
-Menu keys: `↑↓` move, `enter` select, `1-9` jump, `space` tick, `q` back, `r` run again.
+Menu keys: `↑↓` move, `enter` or `→` select, `1-9` jump, `space` tick, `q` or `←` back.
+
+After a run: `r` run again, `f` only the failed parts, `c` choose other parts,
+`w` watch (run again on save), `k` keep the build folder. `ctrl-c` stops a
+test and keeps the menu. The last run is at the top of the menu.
 
 </details>
 

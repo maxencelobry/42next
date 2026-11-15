@@ -584,4 +584,9 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # ctrl-c: the temporary copies are removed on the way out
+        print("\nstopped (ctrl-c)")
+        sys.exit(130)

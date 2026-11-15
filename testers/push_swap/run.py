@@ -27,6 +27,7 @@ import statistics
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
 from random import Random
 
@@ -221,6 +222,16 @@ def sort_run(ctx, nums, flags=(), after=False, bench=False, timeout=None):
     nargs = [str(n) for n in nums]
     argv = nargs + list(flags) if after else list(flags) + nargs
     return Outcome(nums, argv, ctx.ps(argv, timeout), bench)
+
+
+def sort_many(ctx, inputs, flags=()):
+    """sort_run on many inputs at the same time, results in order."""
+    if not inputs:
+        return []
+    workers = max(1, min(len(inputs), os.cpu_count() or 2))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(lambda nums: sort_run(ctx, list(nums), flags),
+                             inputs))
 
 
 def strat_flag(name):
@@ -564,9 +575,8 @@ def g_small(ctx):
         perms = list(itertools.permutations(values))
         if ctx.quick and len(perms) > 24:
             perms = Random(5).sample(perms, 24)
-        for p in perms:
+        for p, out in zip(perms, sort_many(ctx, perms)):
             rank = tuple(sorted(p).index(v) for v in p)
-            out = sort_run(ctx, list(p))
             if not out.ok:
                 fails.append(out)
                 continue
@@ -596,20 +606,16 @@ def g_small(ctx):
                       + "\n".join(lines))
     rng = Random(55)
     for flag in STRATEGIES:
-        bad = []
+        inputs = []
         for n in (2, 3, 5):
             perms = list(itertools.permutations(range(n)))
             if ctx.quick and n == 5:
                 perms = Random(6).sample(perms, 12)
-            for p in perms:
-                out = sort_run(ctx, list(p), strat_flag(flag))
-                if not out.ok:
-                    bad.append(out)
+            inputs += perms
         for _ in range(10):
-            out = sort_run(ctx, sim.random_input(rng, rng.randint(6, 12)),
-                           strat_flag(flag))
-            if not out.ok:
-                bad.append(out)
+            inputs.append(sim.random_input(rng, rng.randint(6, 12)))
+        bad = [o for o in sort_many(ctx, inputs, strat_flag(flag))
+               if not o.ok]
         rep.check(f"--{flag}: all permutations of 2, 3, 5 + random 6..12",
                   not bad, detail=None if not bad else
                   f"{len(bad)} failing; first:\n" + bad[0].detail(ctx))
@@ -701,7 +707,7 @@ def g_perf(ctx):
     flags = strat_flag(o.strategy)
     lab = f"size {size}" + (f" --{o.strategy}" if o.strategy else "") + \
         (f" disorder {o.disorder:.2f}" if o.disorder is not None else "")
-    ctx.rep.section(f"perf ({lab})")
+    ctx.rep.section(f"perf ({lab})", gid="perf")
     if size < 1:
         ctx.rep.check("size >= 1", False)
         return
@@ -1104,9 +1110,17 @@ def g_leaks(ctx):
               ("error: empty argument", [""]),
               ("error: bad string", ["1 2 x"]),
               ("error: --bench + duplicate", ["--bench", "5", "5"])]
-    for name, argv in normal + errors:
-        res, leaks = core.valgrind([ctx.binary, *argv], cwd=ctx.ws.dir,
-                                   timeout=max(120, ctx.timeout * 6))
+    cases = normal + errors
+
+    def one(case):
+        return core.valgrind([ctx.binary, *case[1]], cwd=ctx.ws.dir,
+                             timeout=max(120, ctx.timeout * 6))
+
+    # every valgrind run at the same time, reported in order
+    workers = max(1, min(len(cases), os.cpu_count() or 2))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(one, cases))
+    for (name, argv), (res, leaks) in zip(cases, results):
         cmd = ctx.cmd(argv, 120).replace(
             "./push_swap", "valgrind --leak-check=full ./push_swap", 1)
         if res.timed_out or res.crashed:
@@ -1186,4 +1200,9 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # ctrl-c: the temporary copies are removed on the way out
+        print("\nstopped (ctrl-c)")
+        sys.exit(130)

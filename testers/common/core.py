@@ -32,8 +32,8 @@ import time
 
 USE_COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
 
-# dark blue theme, same as the menu: exact colours on truecolor terminals,
-# nearest 256-colour otherwise
+# neutral theme, same as the menu: grey text, colour only for OK / KO /
+# WARN. Exact colours on truecolor terminals, nearest 256-colour otherwise
 _TRUE = any(x in os.environ.get("COLORTERM", "")
             for x in ("truecolor", "24bit"))
 
@@ -45,7 +45,7 @@ def _rgb(hexa, c256):
     return f"38;2;{r};{g};{b}"
 
 
-THEME = {"acc": _rgb("#4f9dff", 75), "dim": _rgb("#7088b0", 67),
+THEME = {"dim": _rgb("#8a8a8a", 245),
          "ok": _rgb("#4ade80", 78), "ko": _rgb("#f87171", 203),
          "warn": _rgb("#fbbf24", 220)}
 
@@ -66,8 +66,8 @@ def yellow(t):
     return _c(THEME["warn"], t)
 
 
-def cyan(t):
-    return _c(THEME["acc"], t)
+def accent(t):
+    return _c("1", t)
 
 
 def dim(t):
@@ -81,6 +81,11 @@ def bold(t):
 # --------------------------------------------------------------------------
 # arguments
 # --------------------------------------------------------------------------
+
+# Group ids of the running tester (set by parse_args). A Report section whose
+# name is one of them maps to that group for NEXT42_FAILED.
+GROUP_IDS: set = set()
+
 
 def parse_args(description, groups):
     """groups: list of (id, label). Handles --list itself and exits."""
@@ -106,6 +111,8 @@ def parse_args(description, groups):
             print(f"{gid}\t{label}")
         sys.exit(0)
     known = {g for g, _ in groups}
+    GROUP_IDS.clear()
+    GROUP_IDS.update(known)
     args.only = [g for g in args.only.split(",") if g]
     unknown = [g for g in args.only if g not in known]
     if unknown:
@@ -134,6 +141,8 @@ def header(title, project, note=None, verbose=False):
     """First lines of every tester: what is tested, where."""
     home = os.path.expanduser("~")
     where = "~" + project[len(home):] if project.startswith(home) else project
+    # The menu sets it when it tests a temporary export of the last commit.
+    where = os.environ.get("NEXT42_PROJECT_LABEL") or where
     print(f"{bold(title)}  {dim(where)}")
     if note and verbose:
         print(dim(note))
@@ -149,19 +158,31 @@ class Report:
 
     A check is OK / KO / WARN / SKIP. Only KO counts as a failure. WARN is
     for things a grader may or may not flag (shown, never fatal).
+
+    Each section maps to a group id (for NEXT42_FAILED): the explicit gid,
+    else alias[name], else name when it is a known group id, else None.
     """
 
-    def __init__(self, verbose=False):
+    def __init__(self, verbose=False, group_ids=None):
         self.verbose = verbose
         self.sections = []      # (name, ok, ko, warn)
         self.current = None
         self.failed_sections = []
+        self.alias = {}         # section name -> group id, filled by testers
+        self.group_ids = GROUP_IDS if group_ids is None else set(group_ids)
+        self.current_gid = None
+        self.failed_gids = []   # group id (or None) of each failed section
 
-    def section(self, name):
+    def section(self, name, gid=None):
         self._close()
+        if gid is None:
+            gid = self.alias.get(name)
+        if gid is None and name in self.group_ids:
+            gid = name
+        self.current_gid = gid
         self.current = [name, 0, 0, 0]
         print()
-        print(bold(cyan(f"== {name} ==")))
+        print(accent(f"== {name} =="))
 
     def _close(self):
         if self.current:
@@ -173,6 +194,7 @@ class Report:
             print(f"   {tag} {name}: {ok}/{total}{extra}")
             if ko:
                 self.failed_sections.append(name)
+                self.failed_gids.append(self.current_gid)
             self.current = None
 
     def check(self, name, ok, expected=None, got=None, detail=None):
@@ -219,7 +241,27 @@ class Report:
         else:
             print(bold(red(f"RESULT {ok}/{ok + ko}  {ko} failed in: "
                            + ", ".join(self.failed_sections))))
+        self._write_failed()
         return 0 if ko == 0 else 1
+
+    def _write_failed(self):
+        """NEXT42_FAILED=path: failed group ids, one per line, for the menu.
+
+        A single "*" line means a failed section has no group id, so the
+        failures cannot be rerun alone. Empty file when nothing failed.
+        """
+        path = os.environ.get("NEXT42_FAILED")
+        if not path:
+            return
+        if None in self.failed_gids:
+            lines = ["*"]
+        else:
+            lines = list(dict.fromkeys(self.failed_gids))
+        try:
+            with open(path, "w") as f:
+                f.write("".join(g + "\n" for g in lines))
+        except OSError:
+            pass
 
 
 # --------------------------------------------------------------------------
@@ -589,6 +631,27 @@ def _mtimes(directory):
     return out
 
 
+def _backdate(directory, seconds=2):
+    """Move every mtime back in time, all by the same amount.
+
+    make only compares mtimes with each other, so it sees no change. Any file
+    written by the next make then gets a newer mtime, even on a filesystem
+    with 1 second precision, without having to sleep.
+    """
+    shift = int(seconds * 1e9)
+    for root, dirs, files in os.walk(directory):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for n in dirs + files:
+            p = os.path.join(root, n)
+            try:
+                st = os.lstat(p)
+                os.utime(p, ns=(st.st_atime_ns - shift,
+                                st.st_mtime_ns - shift),
+                         follow_symlinks=False)
+            except (OSError, NotImplementedError):
+                pass
+
+
 def check_makefile(rep, ws_dir, name, rules=("$(NAME)", "all", "clean",
                                              "fclean", "re"),
                    extra_rules=(), bonus=False):
@@ -625,8 +688,8 @@ def check_makefile(rep, ws_dir, name, rules=("$(NAME)", "all", "clean",
                      short_errors(output(res)) or f"{name} not created"):
         return False
 
+    _backdate(ws_dir)
     before = _mtimes(ws_dir)
-    time.sleep(1.05)
     res2 = run(["make"], cwd=ws_dir, timeout=300)
     after = _mtimes(ws_dir)
     touched = sorted(f for f in after if before.get(f) != after[f])
@@ -641,8 +704,8 @@ def check_makefile(rep, ws_dir, name, rules=("$(NAME)", "all", "clean",
         res_b = run(["make", "bonus"], cwd=ws_dir, timeout=300)
         rep.check("make bonus", res_b.rc == 0,
                   detail=short_errors(output(res_b)) if res_b.rc else None)
+        _backdate(ws_dir)
         before = _mtimes(ws_dir)
-        time.sleep(1.05)
         run(["make", "bonus"], cwd=ws_dir, timeout=300)
         after = _mtimes(ws_dir)
         touched = sorted(f for f in after if before.get(f) != after[f])
@@ -760,6 +823,49 @@ def check_repo(rep, project, binaries=()):
               detail=("remove: " + ", ".join(bad[:12])
                       + (f" (+{len(bad) - 12})" if len(bad) > 12 else ""))
               if bad else None)
+    check_git_state(rep, project)
+
+
+SOURCE_EXT = (".c", ".h", ".py", ".md", ".sh", ".json", ".txt")
+
+
+def _cap(names, limit=8):
+    more = f" (+{len(names) - limit})" if len(names) > limit else ""
+    return ", ".join(names[:limit]) + more
+
+
+def _git_lines(args, project):
+    res = run(["git", "-c", "core.quotepath=off"] + args, cwd=project,
+              timeout=30)
+    if res.rc != 0:
+        return None
+    return [x for x in res.out.decode("utf-8", "replace").split("\n") if x]
+
+
+def check_git_state(rep, project):
+    """WARN when sources are not committed: only what is pushed is graded."""
+    inside = _git_lines(["rev-parse", "--is-inside-work-tree"], project)
+    if inside != ["true"]:
+        return
+    others = _git_lines(["ls-files", "--others", "--exclude-standard"],
+                        project) or []
+    new = [f for f in others if f.endswith(SOURCE_EXT)
+           or os.path.basename(f) == "Makefile"]
+    if new:
+        rep.warn(f"not in git: {_cap(new)} "
+                 "(git add them: only what is pushed is graded)")
+    status = _git_lines(["status", "--porcelain", "--untracked-files=no",
+                         "--", "."], project) or []
+    top = _git_lines(["rev-parse", "--show-toplevel"], project)
+    changed = []
+    for line in status:
+        path = line[3:].split(" -> ")[-1].strip('"')
+        if top:
+            path = os.path.relpath(os.path.join(top[0], path), project)
+        changed.append(path)
+    if changed:
+        rep.warn(f"changed since the last commit: {_cap(changed)} "
+                 "(commit and push them)")
 
 
 def check_readme(rep, project, extra_sections=()):

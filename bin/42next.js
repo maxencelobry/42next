@@ -12,7 +12,8 @@ const ROOT = path.resolve(__dirname, '..');
 const T = path.join(ROOT, 'testers');
 const HOME = os.homedir();
 // python3 on Linux / macOS, python or py on Windows
-const PY = process.env.PYTHON || ['python3', 'python', 'py'].find((c) => spawnSync(c, ['-c', 'import sys; assert sys.version_info >= (3, 9)']).status === 0) || 'python3';
+const PY_FOUND = process.env.PYTHON || ['python3', 'python', 'py'].find((c) => spawnSync(c, ['-c', 'import sys; assert sys.version_info >= (3, 9)']).status === 0);
+const PY = PY_FOUND || 'python3';
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 // neutral theme: grey text, colour only for OK / KO / WARN.
 // Exact colours on truecolor terminals, nearest 256-colour otherwise.
@@ -32,6 +33,11 @@ const ls = (d) => { try { return fs.readdirSync(d); } catch { return []; } };
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
 const subdirs = (d) => ls(d).filter((n) => !n.startsWith('.') && n !== 'node_modules' && isDir(path.join(d, n))).map((n) => path.join(d, n));
 const short = (p) => (p.startsWith(HOME) ? '~' + p.slice(HOME.length) : p);
+// git in `dir`: a missing git gives status null and empty output, never a throw
+const gitIn = (dir, a, o = {}) => {
+  const r = spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8', ...o });
+  return { ...r, stdout: r.stdout || '', stderr: r.stderr || '' };
+};
 
 function findFile(dir, test, depth = 2) {
   for (const n of ls(dir)) {
@@ -125,21 +131,31 @@ function testerArgs(p) {
   return p.kind === 'py' ? [...base, '--spec', path.join(T, 'py', 'specs', `${p.id}.json`), '--project', p.dir] : [...base, '--project', p.dir];
 }
 
+// The testers need python 3.9+: say it and stop, instead of an empty menu.
+function noPython() {
+  console.log(red('python3 3.9+ is required to run the tests: https://www.python.org/downloads/'));
+  process.exit(2);
+}
+
 function groups(p) {
   if (!fs.existsSync(path.join(T, p.tester))) return null;
+  if (!PY_FOUND) noPython();
   const r = spawnSync(PY, [...testerArgs(p), '--list'], { encoding: 'utf8' });
+  if (r.error) noPython();
   if (r.status !== 0) return [];
   return r.stdout.split('\n').filter(Boolean).map((l) => { const [id, ...rest] = l.split('\t'); return { id, label: rest.join(' · ') || id }; });
 }
 
 function runTester(p, only = [], extra = [], env = {}) {
-  const args = [...testerArgs(p), ...(only.length ? ['--only', only.join(',')] : []), ...(tty ? ['--color'] : []), ...extra];
+  if (!PY_FOUND) noPython();
+  const args = [...testerArgs(p), ...(only.length ? ['--only', only.join(',')] : []), ...(tty && !extra.includes('--no-color') ? ['--color'] : []), ...extra];
   if (process.env.NEXT_DEBUG) console.log(dim(`$ ${PY} ${args.join(' ')}`));
   // ctrl-c goes to the tester only: it stops, cleans up, and the menu stays
   const ignore = () => {};
   process.on('SIGINT', ignore);
   const r = spawnSync(PY, args, { stdio: 'inherit', env: { ...process.env, ...env } });
   process.off('SIGINT', ignore);
+  if (r.error) noPython();
   if (r.status === 0) askStar();
   return r.status ?? (r.signal === 'SIGINT' ? 130 : 2);
 }
@@ -167,14 +183,14 @@ function saveJob(dir, job) {
 // Export the last git commit of `dir` (only that folder) to a temporary
 // folder: exactly what is graded, without the files git does not have.
 function exportCommit(dir) {
-  const git = (...a) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
+  const git = (...a) => gitIn(dir, a);
   const pre = git('rev-parse', '--show-prefix');
   if (pre.status !== 0) return { error: 'this folder is not in a git repository' };
   const head = git('log', '-1', '--format=%h %s');
   if (head.status !== 0) return { error: 'no commit yet' };
   const prefix = pre.stdout.trim().replace(/\/$/, '');
   const ar = spawnSync('git', ['-C', dir, 'archive', '--format=tar', prefix ? `HEAD:${prefix}` : 'HEAD'], { maxBuffer: 1 << 30 });
-  if (ar.status !== 0) return { error: String(ar.stderr).trim() || 'git archive failed' };
+  if (ar.status !== 0) return { error: String(ar.stderr || '').trim() || 'git archive failed' };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '42next-commit-'));
   const x = spawnSync('tar', ['-x', '-C', tmp], { input: ar.stdout });
   if (x.status !== 0) { fs.rmSync(tmp, { recursive: true, force: true }); return { error: 'tar failed' }; }
@@ -182,7 +198,7 @@ function exportCommit(dir) {
   const up = git('rev-list', '--count', '@{u}..HEAD');
   return { tmp, head: head.stdout.trim(), dirty, ahead: up.status === 0 ? +up.stdout.trim() : null };
 }
-const inGit = (dir) => spawnSync('git', ['-C', dir, 'rev-parse', '--is-inside-work-tree'], { encoding: 'utf8' }).stdout.trim() === 'true';
+const inGit = (dir) => gitIn(dir, ['rev-parse', '--is-inside-work-tree']).stdout.trim() === 'true';
 
 // Run a job. Returns { status, failed } where failed is the list of the
 // group ids that failed, or null when the tester could not tell.
@@ -330,8 +346,13 @@ function key() {
 // multi: space ticks, enter returns the ticked values (or the current one).
 // state: { pos } keeps the cursor where it was when you come back.
 async function select({ title, sub = '', tag = '', items, multi = false, enter = 'select', back = 'back', state = {} }) {
-  if (!process.stdin.isTTY) { const v = await lineSelect(title, items); return multi && v !== null ? [v] : v; }
   const pick = items.map((it, n) => (it.value !== undefined ? n : -1)).filter((n) => n >= 0);
+  if (!pick.length) {
+    console.log(dim('\n nothing to test'));
+    if (process.stdin.isTTY) { process.stdout.write(dim(' enter back ')); const k = await key(); console.log(); if (k === '\x03') process.exit(130); }
+    return null;
+  }
+  if (!process.stdin.isTTY) { const v = await lineSelect(title, items); return multi && v !== null ? [v] : v; }
   const I = Math.max(40, Math.min(process.stdout.columns || 80, 78)) - 2;
   const row = (txt = '') => ' ' + txt;
   const labelW = Math.min(Math.max(...pick.map((n) => items[n].label.length)) + 2, Math.floor(I / 2));
@@ -606,18 +627,33 @@ function update(force = false) {
   try { last = fs.statSync(stamp).mtimeMs; } catch { /* first run */ }
   if (!force && Date.now() - last < 24 * 3600 * 1000) return;
   try { fs.mkdirSync(path.dirname(stamp), { recursive: true }); fs.writeFileSync(stamp, ''); } catch { /* read-only home */ }
-  const git = (...a) => spawnSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', timeout: 4000 });
-  if (git('status', '--porcelain', '--untracked-files=no').stdout.trim()) {
+  removeStaleLocks(path.join(ROOT, '.git'));
+  const git = (...a) => gitIn(ROOT, a);
+  const st = git('status', '--porcelain', '--untracked-files=no');
+  if (st.status !== 0) { if (force) console.log(yellow('git is not available: update skipped')); return; }
+  if (st.stdout.trim()) {
     if (force) console.log(yellow(`local changes in ${short(ROOT)}: update skipped`));
     return;
   }
   if (force) console.log(dim('checking for updates...'));
-  if (git('fetch', '--quiet', 'origin').status !== 0) { if (force) console.log(yellow('no network: update skipped')); return; }
+  // only the fetch needs the network, so only the fetch gets a short timeout
+  if (gitIn(ROOT, ['fetch', '--quiet', 'origin'], { timeout: 4000 }).status !== 0) { if (force) console.log(yellow('no network: update skipped')); return; }
   const behind = git('rev-list', '--count', 'HEAD..@{u}').stdout.trim();
   if (!behind || behind === '0') { if (force) console.log(green('42next is up to date')); return; }
-  const r = git('pull', '--ff-only', '--quiet');
+  // local, no timeout: a merge killed halfway leaves a lock behind
+  const r = git('merge', '--ff-only', '--quiet', '@{u}');
   if (r.status === 0) console.log(green(`42next updated (${behind} new commit${behind === '1' ? '' : 's'}): `) + dim(git('log', '-1', '--format=%s').stdout.trim()));
   else if (force) console.log(red('update failed: ') + (r.stderr || '').trim());
+}
+
+// A git killed halfway (closed terminal, timeout) can leave *.lock files, and
+// every later git command fails. A lock older than 10 minutes belongs to nobody.
+function removeStaleLocks(gitDir) {
+  const old = Date.now() - 10 * 60 * 1000;
+  const check = (p) => { try { if (fs.statSync(p).mtimeMs < old) fs.rmSync(p, { force: true }); } catch { /* no lock */ } };
+  ['index.lock', 'HEAD.lock', 'ORIG_HEAD.lock', 'FETCH_HEAD.lock', 'packed-refs.lock', 'config.lock', 'shallow.lock'].forEach((n) => check(path.join(gitDir, n)));
+  const walk = (d) => ls(d).forEach((n) => { const p = path.join(d, n); if (isDir(p)) walk(p); else if (n.endsWith('.lock')) check(p); });
+  walk(path.join(gitDir, 'refs'));
 }
 
 // Older installs lived in ~/42next. Move them to ~/.local/share/42next (out of
@@ -633,7 +669,7 @@ function migrate() {
   try { if (!fs.lstatSync(old).isDirectory()) return; } catch { return; }
   if (real(ROOT) !== real(old) || fs.existsSync(dest)) return;
   if (real(link) !== path.join(real(old), 'bin', '42next.js')) return;
-  const origin = spawnSync('git', ['-C', old, 'remote', 'get-url', 'origin'], { encoding: 'utf8' }).stdout || '';
+  const origin = gitIn(old, ['remote', 'get-url', 'origin']).stdout;
   if (!origin.includes('maxencelobry/42next')) return;
   try {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -659,56 +695,81 @@ const HELP = `${bold('42next')} - tester for 42 projects. Run it in your project
   42next                   menu (finds the project around the current folder)
   42next <folder>          menu on that folder
   42next all               test the whole detected project, no menu
-  42next quick             same, without valgrind and big benchmarks
+  42next quick [part...]   same, skip the slow checks (valgrind, big benchmarks, mypy)
   42next <part...>         test only these parts: ft_split, ex3, c, p100...
-  42next <file.py>         test the exercise of that file
+  42next <file...>         test the parts of these files: ft_split.c, ex3/main.py
   42next list              list the testable parts of the detected project
   42next watch [part...]   run again each time you save a file
   42next commit [part...]  test the last git commit only (what is graded)
   42next clean             clean the project (__pycache__, .mypy_cache, .o...)
   42next clean-pc          clean caches on this computer
   42next update            get the latest tests now (also automatic, once a day)
+
+  Options go to the tester: --verbose (passing checks too), --keep (keep the
+  build folder), --quick, --no-color. Example: 42next ft_split --verbose
 `;
+
+// A word of the command line is a part name, or a file / folder of the
+// project: ft_split.c -> ft_split, ex3/main.py -> ex3. null: no part matches.
+function partOf(p, gs, w) {
+  const id = w.replace(/[/\\]$/, '');
+  if (gs.some((g) => g.id === id)) return id;
+  if (!fs.existsSync(w)) return id;   // not a file: the tester says if the name is unknown
+  if (p.kind === 'c') {
+    const base = path.basename(w).replace(/(_bonus)?\.c$/, '');
+    return gs.some((g) => g.id === base) ? base : null;
+  }
+  if (p.kind !== 'py') return null;
+  const rel = path.relative(p.dir, path.resolve(w));
+  const ex = p.spec.exercises.find((e) => e.file === rel.split(path.sep).join('/') || e.file.split('/')[0] === rel.split(path.sep)[0]);
+  return ex ? ex.id : null;
+}
 
 async function main() {
   const args = process.argv.slice(2);
+  // -x / --xxx go to the tester as they are, the rest are commands and parts
+  const flags = args.filter((a) => a.startsWith('-'));
+  const words = args.filter((a) => !a.startsWith('-'));
   const cwd = process.cwd();
   migrate();
-  if (args[0] === '-h' || args[0] === '--help' || args[0] === 'help') return console.log(HELP);
-  if (args[0] === 'update') return update(true);
+  if (flags.includes('-h') || flags.includes('--help') || words[0] === 'help') return console.log(HELP);
+  if (words[0] === 'update') return update(true);
   update();
-  if (args[0] === 'clean-pc') return cleanPc();
+  if (words[0] === 'clean-pc') return cleanPc();
   // a folder opens the menu there, unless it is also a part name (ex1/ in a Python project)
-  if (args.length === 1 && isDir(path.resolve(args[0]))) {
+  if (words.length === 1 && isDir(path.resolve(words[0]))) {
     const here = detect(cwd)[0];
-    if (!here || !(groups(here) || []).some((g) => g.id === args[0].replace(/\/$/, ''))) return mainMenu(path.resolve(args[0]));
-    args[0] = args[0].replace(/\/$/, '');
+    if (!here || !(groups(here) || []).some((g) => g.id === words[0].replace(/[/\\]$/, ''))) return mainMenu(path.resolve(words[0]));
   }
   if (!args.length) return mainMenu(cwd);
 
-  let start = cwd;
-  let only = args;
-  if (args.length === 1 && fs.existsSync(args[0])) { start = path.dirname(path.resolve(args[0])); only = []; }
+  const cmd = ['all', 'quick', 'list', 'watch', 'commit', 'clean'].includes(words[0]) ? words[0] : '';
+  const names = cmd ? words.slice(1) : words;
+  // a file or folder given: look for the project around it
+  const file = names.find((w) => fs.existsSync(w));
+  const start = file ? path.dirname(path.resolve(file)) : cwd;
   const found = detect(start);
   if (!found.length) { console.log(red(`No 42 project found around ${short(start)}.`)); process.exit(2); }
   const p = found[0];
-  if (args[0] === 'clean') return cleanProject(p.dir);
-  if (args[0] === 'list') return (groups(p) || []).forEach((g) => console.log(`${g.id.padEnd(16)} ${dim(g.label)}`));
-  if (args[0] === 'watch') return watch(p, { only: args.slice(1), extra: [] });
-  if (args[0] === 'commit') process.exit(runJob(p, { only: args.slice(1), extra: [], commit: true }).status ?? 2);
-  if (args[0] === 'all') only = [];
-  if (args[0] === 'quick') process.exit(runTester(p, [], ['--quick']) ?? 2);
-  // a C file: test the part named like it (ft_split.c -> ft_split)
-  if (fs.existsSync(args[0] || '') && p.kind === 'c') {
-    const base = path.basename(args[0]).replace(/(_bonus)?\.c$/, '');
-    if ((groups(p) || []).some((g) => g.id === base)) only = [base];
+  if (cmd === 'clean') return cleanProject(p.dir);
+  if (cmd === 'list') return (groups(p) || []).forEach((g) => console.log(`${g.id.padEnd(16)} ${dim(g.label)}`));
+
+  let only = [];
+  if (names.length) {
+    const gs = groups(p) || [];
+    for (const w of names) {
+      const id = partOf(p, gs, w);
+      if (id === null) console.log(yellow(`${w}: no part of ${p.name} matches this file (42next list shows them)`));
+      else if (!only.includes(id)) only.push(id);
+    }
+    if (!only.length) process.exit(2);
   }
-  if (fs.existsSync(args[0] || '') && p.kind === 'py') {
-    const rel = path.relative(p.dir, path.resolve(args[0]));
-    const ex = p.spec.exercises.find((e) => e.file === rel || e.file.split('/')[0] === rel.split(path.sep)[0]);
-    if (ex) only = [ex.id];
-  }
-  process.exit(runTester(p, only) ?? 2);
+  const extra = cmd === 'quick' && !flags.includes('--quick') ? ['--quick', ...flags] : flags;
+  if (cmd === 'watch') return watch(p, { only, extra });
+  if (cmd === 'commit') process.exit(runJob(p, { only, extra, commit: true }).status ?? 2);
+  process.exit(runTester(p, only, extra) ?? 2);
 }
 
+// output piped into `head` or a closed terminal: stop quietly, no stack trace
+process.stdout.on('error', (e) => { if (e.code === 'EPIPE') process.exit(0); throw e; });
 main().catch((e) => { console.error(red(e.stack)); process.exit(1); });

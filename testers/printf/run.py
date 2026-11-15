@@ -145,7 +145,13 @@ def gen_runner(ws, cases, tag):
     return path
 
 
-WRAP = ["-Wl,--wrap=malloc,--wrap=free"]
+# Apple ld64 has no --wrap: on macOS the per-call malloc tracking is off
+# (the runner is built with NEXT42_NO_WRAP), everything else still runs.
+WRAP_OK = sys.platform != "darwin"
+NO_WRAP_WHY = "needs GNU ld --wrap, not available on macOS"
+WRAP = (["-Wl,--wrap=malloc,--wrap=free"] if WRAP_OK
+        else ["-DNEXT42_NO_WRAP"])
+MAX_TIMEOUTS = 2    # same value as MAX_TIMEOUTS in runner.c.in
 ASAN = ["-fsanitize=address", "-fno-omit-frame-pointer"]
 RUN_ENV = {"ASAN_OPTIONS": "detect_leaks=0:exitcode=86:abort_on_error=0"}
 
@@ -283,11 +289,17 @@ def judge(case, rec):
 def report_group(rep, cases, ids, records):
     shown = 0
     hidden = 0
+    hung = [i for i in ids if records.get(i, ("",))[0] == "timeout"]
+    stopped = len(hung) >= MAX_TIMEOUTS
+    not_run = []
     for i in ids:
         case = cases[i]
         name = case.label + (f"  [{case.title}]" if case.title else "")
         rec = records.get(i)
         if rec is None:
+            if stopped:
+                not_run.append(i)
+                continue
             rep.check(name, False, detail="no result: the test runner itself "
                       "died (see above)")
             continue
@@ -295,8 +307,11 @@ def report_group(rep, cases, ids, records):
         if ok:
             rep.check(name, True)
             continue
-        if case.ub:
-            rep.warn(name + "  (behaviour not required by the subject)",
+        # undefined in C / not in the subject: only a WARN, but a leak in
+        # the call stays a KO
+        if case.ub and not (rec[0] == "ok" and rec[5]):
+            rep.warn(name + "  (not defined by the subject, compared with "
+                     "this libc's printf)",
                      f"expected: {exp}\ngot:      {got}")
             continue
         if shown >= MAX_KO and not rep.verbose:
@@ -308,6 +323,11 @@ def report_group(rep, cases, ids, records):
         silent_ko(rep, hidden)
         print(core.red(f"  ... {hidden} more failing case(s) in this group "
                        "(use --verbose to see all)"))
+    if not_run:
+        rep.check(f"group stopped after {len(hung)} timeouts: "
+                  f"{len(not_run)} more case(s) not run", False,
+                  detail="calls that hung:\n"
+                  + "\n".join("  " + cases[i].label for i in hung))
 
 
 # --------------------------------------------------------------------------
@@ -324,6 +344,16 @@ def find_header(project):
         if "ft_printf.h" in files:
             return os.path.join(root, "ft_printf.h")
     return None
+
+
+def header_dirs(project, hdr):
+    """The folder of hdr first, then every other folder with a .h file."""
+    dirs = [os.path.dirname(hdr)]
+    for root, sub, files in os.walk(project):
+        sub[:] = sorted(x for x in sub if not x.startswith("."))
+        if root not in dirs and any(f.endswith(".h") for f in files):
+            dirs.append(root)
+    return dirs
 
 
 def group_header(rep, ws, build):
@@ -356,7 +386,9 @@ def group_header(rep, ws, build):
         fh.write('#include "ft_printf.h"\n\nint\tmain(void)\n{\n'
                  '\treturn (ft_printf("%d|%s", 42, "ok") != 5);\n}\n')
     out = ws.tmp("header_test")
-    ok, text = core.compile_c([src], out, includes=[os.path.dirname(hdr)],
+    # every folder with a .h: ft_printf.h may include "libft.h", found
+    # through the -I of the Makefile
+    ok, text = core.compile_c([src], out, includes=header_dirs(ws.dir, hdr),
                               libs=[b.mand])
     if not rep.check('#include "ft_printf.h" + link with -lftprintf compiles',
                      ok, detail=None if ok else core.short_errors(text)):
@@ -379,8 +411,14 @@ def group_makefile(rep, ws, build):
     b = build.get()
     if b.mand:
         so = ws.tmp("shared_test.so")
-        res = core.run(["cc", "-shared", "-o", so, "-Wl,--whole-archive",
-                        b.mand, "-Wl,--no-whole-archive"], timeout=60)
+        if WRAP_OK:
+            link = ["-Wl,--whole-archive", b.mand, "-Wl,--no-whole-archive"]
+        else:
+            # Apple ld64: -force_load instead of --whole-archive, and allow
+            # undefined symbols like a Linux shared object does
+            link = ["-Wl,-force_load," + b.mand,
+                    "-Wl,-undefined,dynamic_lookup"]
+        res = core.run(["cc", "-shared", "-o", so, *link], timeout=60)
         err = core.output(res).replace(ws.tmp(""), "")
         rep.check(f"{NAME} links into a shared object (-fPIC)", res.rc == 0,
                   detail=None if res.rc == 0 else
@@ -423,13 +461,16 @@ def archive_objects(ws, lib, tag):
 NOT_CALLS = {"GLOBAL_OFFSET_TABLE_", "_GLOBAL_OFFSET_TABLE_"}
 
 
-def check_functions(rep, objs, allowed, label="external functions"):
+def check_functions(rep, objs, allowed, label="external functions",
+                    sources=None):
     syms = core.external_symbols(objs)
     if syms is None:
         rep.skip(label, "nm not installed")
         return
     bad = [x for x in syms if x not in allowed and x not in NOT_CALLS
            and x not in core.COMPILER_ALIASES]
+    stems = {os.path.basename(o)[:-2] for o in objs}
+    bad += core.written_aliases(syms, allowed, sources, stems=stems)
     rep.check(f"{label}: only {', '.join(sorted(allowed))}", not bad,
               detail="forbidden: " + ", ".join(bad) if bad else None)
 
@@ -443,10 +484,11 @@ def group_functions(rep, ws, build):
     objs = archive_objects(ws, b.mand, "mandatory")
     rep.check(f"{NAME} contains object files", bool(objs),
               detail=None if objs else "ar x extracted no .o file")
-    check_functions(rep, objs, ALLOWED)
+    check_functions(rep, objs, ALLOWED, sources=ws.dir)
     if b.bonus:
         check_functions(rep, archive_objects(ws, b.bonus, "bonus"),
-                        ALLOWED, label="external functions (bonus)")
+                        ALLOWED, label="external functions (bonus)",
+                        sources=ws.dir)
 
 
 def run_test_groups(rep, ws, build, args, seed):
@@ -469,10 +511,6 @@ def run_test_groups(rep, ws, build, args, seed):
     if conv_sel:
         binary, err = (None, b.error) if not b.mand else \
             compile_runner(ws, mand, b.mand, "mandatory", asan)
-        ids = [i for i, c in enumerate(mand)
-               if c.group in {g for g, _ in conv_sel}]
-        records, res = ({}, None) if not binary else \
-            run_cases(ws, binary, mand, ids, "mandatory")
         first_err = True
         for g, lbl in conv_sel:
             rep.section(lbl)
@@ -482,19 +520,30 @@ def run_test_groups(rep, ws, build, args, seed):
                           else "same error as above")
                 first_err = False
                 continue
-            gids = [i for i in ids if mand[i].group == g]
+            if first_err and not WRAP_OK:
+                rep.skip("per-call leak tracking", NO_WRAP_WHY)
+            first_err = False
+            # one runner per group: it stops after MAX_TIMEOUTS timeouts
+            gids = [i for i, c in enumerate(mand) if c.group == g]
+            records, res = run_cases(ws, binary, mand, gids, "mand_" + g)
             report_group(rep, mand, gids, records)
+            early_stop(res, records, gids)
             ok_ids = [i for i in gids if i in records
                       and records[i][0] == "ok"]
             passed |= set(ok_ids)
             if vg_on:
                 vg_group(rep, binary, mand, ok_ids, lbl)
-        if binary and res and res.rc != 0 and len(records) < len(ids):
-            print(core.red(f"test runner stopped early: {res.status()}"))
 
     if want_bonus:
         rep.section("bonus: flags and width")
         group_bonus(rep, ws, b, seed, vg_on, asan is not None)
+
+
+def early_stop(res, records, ids):
+    """Say it when the runner died before the end (not after timeouts)."""
+    hung = sum(1 for i in ids if records.get(i, ("",))[0] == "timeout")
+    if res.rc != 0 and len(records) < len(ids) and hung < MAX_TIMEOUTS:
+        print(core.red(f"test runner stopped early: {res.status()}"))
 
 
 def vg_group(rep, binary, cases, ids, what, max_culprits=5):
@@ -556,9 +605,12 @@ def group_bonus(rep, ws, b, seed, vg_on=False, use_asan=False):
         rep.check("build the bonus test program", False,
                   detail=core.short_errors(err))
         return
+    if not WRAP_OK:
+        rep.skip("per-call leak tracking", NO_WRAP_WHY)
     ids = list(range(len(cases)))
     records, res = run_cases(ws, binary, cases, ids, "bonus")
     report_group(rep, cases, ids, records)
+    early_stop(res, records, ids)
     if vg_on:
         vg_group(rep, binary, cases,
                  [i for i in ids if records.get(i, ("x",))[0] == "ok"],
@@ -589,8 +641,9 @@ def main():
                       "bonus: flags and width": "bonus"})
     rep.alias.update({lbl: g for g, lbl in CONV_GROUPS})
     if getattr(args, "quick", False):
-        core.quick_skip(rep, "no valgrind / AddressSanitizer runs "
-                        "(per-call leak tracking stays on)")
+        core.quick_skip(rep, "no valgrind / AddressSanitizer runs"
+                        + (" (per-call leak tracking stays on)" if WRAP_OK
+                           else ""))
     with core.Workspace(project, keep=args.keep,
                         prefix="42next-printf-") as ws:
         build = Build(ws)

@@ -6,6 +6,7 @@ return values are compared by run.py.
 """
 
 import random
+import re
 
 DEFAULT_SEED = 4242
 LONG_MAX_LEN = 100000      # size of the g_long helper string in the C runner
@@ -15,6 +16,9 @@ class Case:
     """group: test group id. fmt: format (str). args: C expressions.
 
     ub:    behaviour not defined by the subject -> mismatch is only a WARN.
+           Set by itself when a %s or %p gets NULL: undefined in C, the
+           output depends on the libc (%p: "(nil)" on Linux, "0x0" on
+           macOS), and the subject does not define it.
     code:  custom C body using `pf` (printf or ft_printf) and `wr(ref, s)`.
     fixed: (ret, bytes) expected result when the libc can't be the reference.
     direct: False if the case must not run in the leak checker.
@@ -25,7 +29,7 @@ class Case:
         self.group = group
         self.fmt = fmt
         self.args = list(args)
-        self.ub = ub
+        self.ub = ub or (fmt is not None and null_s_or_p(fmt, self.args))
         self.code = code
         self.fixed = fixed
         self.direct = direct
@@ -44,6 +48,16 @@ class Case:
         if self.args:
             call += ", " + ", ".join(self.args)
         return f"return ({call}));"
+
+
+CONV = re.compile(r"%[-0#+ ]*\d*(?:\.\d*)?([cspdiuxX%])")
+
+
+def null_s_or_p(fmt, args):
+    """True if a %s or %p of fmt gets the argument NULL."""
+    convs = [m.group(1) for m in CONV.finditer(fmt) if m.group(1) != "%"]
+    return any(c in "sp" and a.strip() == "NULL"
+               for c, a in zip(convs, args))
 
 
 def c_lit(text):
@@ -161,9 +175,9 @@ def mandatory_cases(seed):
     ]
     words = ["foo", "bar", "42", "", "printf", "%", "\\n", " ", "x y z"]
     for _ in range(12):
-        picked = [rng.choice(words + ["NULL"]) for _ in range(3)]
-        args = [w if w == "NULL" else c_lit(w).replace("\\\\n", "\\n")
-                for w in picked]
+        # no NULL here: NULL has its own cases, which are only a WARN
+        picked = [rng.choice(words) for _ in range(3)]
+        args = [c_lit(w).replace("\\\\n", "\\n") for w in picked]
         cases.append(Case(g, "<%s|%s|%s>", args, title="random"))
 
     # ---------------- %p
@@ -258,9 +272,11 @@ def mandatory_cases(seed):
              label="ft_printf(\"%c\" x 30, 'A', 'B', ...)"),
     ]
     pool = [("%c", lambda: c_char(rng.randint(32, 126))),
-            ("%s", lambda: rng.choice(['"abc"', "NULL", '""', '"%"'])),
+            # no NULL: a NULL case is only a WARN (see Case)
+            ("%s", lambda: rng.choice(['"abc"', '"x"', '""', '"%"'])),
             ("%p", lambda: rng.choice(
-                ["NULL", "&g_var", f"(void *)0x{rng.getrandbits(40):x}UL"])),
+                ["(void *)1", "&g_var",
+                 f"(void *)0x{rng.getrandbits(40):x}UL"])),
             ("%d", lambda: str(rng.randint(-2 ** 31 + 1, 2 ** 31 - 1))),
             ("%i", lambda: str(rng.randint(-1000, 1000))),
             ("%u", lambda: f"{rng.randint(0, 2 ** 32 - 1)}U"),
@@ -346,8 +362,10 @@ def bonus_cases(seed):
             cases.append(Case(g, f"[{spec}]", [v]))
             cases.append(Case(g, "[" + spec.replace("x", "X") + "]", [v]))
     cases += [
-        Case(g, "%-3c|%-3s|%-3d|%-3x|%-3p", ["'a'", '"b"', "1", "2", "NULL"]),
-        Case(g, "%5c|%5s|%5d|%5x|%5p", ["'a'", '"b"', "1", "2", "NULL"]),
+        Case(g, "%-3c|%-3s|%-3d|%-3x|%-3p", ["'a'", '"b"', "1", "2",
+                                             "(void *)1"]),
+        Case(g, "%5c|%5s|%5d|%5x|%5p", ["'a'", '"b"', "1", "2",
+                                        "(void *)1"]),
         Case(g, "%+d % d %#x %#X %05d %-5d| %.3s", ["1", "2", "255", "255",
                                                     "-7", "-7", '"abcdef"']),
         Case(g, "%5.3d|", ["-7"]),

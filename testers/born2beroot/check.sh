@@ -6,11 +6,13 @@
 #
 # login defaults to $SUDO_USER; monitoring.sh is found from the crontabs.
 #
-# Strictly read-only: it only reads files and runs query commands
-# (lsblk, sshd -T, ufw status, visudo -c, ...). It never edits, installs,
-# enables or restarts anything. The only thing it executes is your
-# monitoring.sh, with `wall` replaced by a function that prints to stdout
-# (so nothing is broadcast).
+# It changes no configuration: it reads files and runs query commands
+# (lsblk, sshd -T, ufw status, visudo -c, ...), and never edits, installs,
+# enables or restarts anything. It also runs your monitoring.sh once, as
+# root, with wall replaced by a print to stdout: a `wall` function, a `wall`
+# (and a pass-through `sudo`) first in PATH, and /usr/bin/wall or /bin/wall
+# in the script text rewritten to `wall`. Whatever else your script does
+# when it runs, it does here too.
 #
 # Exit code: 0 no KO, 1 at least one KO.
 
@@ -747,8 +749,11 @@ else
 		line=${cl#*|}
 		info "$src: $line"
 		[ -z "$script" ] && script=$(printf '%s' "$line" | grep -oE '[^[:space:];|&<>"'"'"']*monitoring\.sh' | head -n1)
+		# split into fields without expanding the * of the cron fields
+		set -f
 		# shellcheck disable=SC2086
 		set -- $line
+		set +f
 		case $1 in
 			@reboot) reboot_ok=1; continue ;;
 			@*) continue ;;
@@ -825,12 +830,39 @@ if [ -n "$script" ] && [ -f "$script" ]; then
 		fi
 	}
 	export -f wall
+	# `command -v wall`, `env wall`, `sudo wall` do not see the function:
+	# put a stand-in wall (and a sudo that just runs its command, we are
+	# root already) first in PATH
+	fakebin=$(mktemp -d 2>/dev/null)
+	runpath=$PATH
+	if [ -n "$fakebin" ] && [ -d "$fakebin" ]; then
+		{
+			echo '#!/bin/bash'
+			declare -f wall
+			echo 'wall "$@"'
+		} > "$fakebin/wall"
+		cat > "$fakebin/sudo" <<'SUDO'
+#!/bin/bash
+while [ $# -gt 0 ]; do
+	case $1 in
+		--) shift; break ;;
+		-u|-g|-C|-h|-p|-U|-r|-t|-D|--user|--group|--host|--prompt) shift 2 ;;
+		-*) shift ;;
+		*) break ;;
+	esac
+done
+[ $# -gt 0 ] && exec "$@"
+SUDO
+		chmod 755 "$fakebin/wall" "$fakebin/sudo"
+		runpath=$fakebin:$PATH
+	fi
 	# run an in-memory copy where /usr/bin/wall is replaced by the function
-	code=$(sed -E 's#(/usr)?/bin/wall#wall#g' "$script")
+	code=$(sed -E 's#(/usr)?/s?bin/wall#wall#g' "$script")
 	if have timeout; then TO="timeout 60"; else TO=; fi
-	raw=$($TO bash -c "$code" "$script" 2> >(sed 's/^/__STDERR__ /') </dev/null)
+	raw=$(PATH=$runpath $TO bash -c "$code" "$script" 2> >(sed 's/^/__STDERR__ /') </dev/null)
 	rc=$?
 	unset -f wall
+	[ -n "$fakebin" ] && rm -rf "$fakebin"
 	raw=$(printf '%s\n' "$raw" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')
 	out=$(printf '%s\n' "$raw" | grep -v '^__STDERR__ ')
 	err=$(printf '%s\n' "$raw" | sed -n 's/^__STDERR__ //p')

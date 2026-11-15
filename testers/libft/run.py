@@ -5,7 +5,8 @@ Static checks (files, libft.h prototypes, norminette, Makefile, external
 functions, README, repository) and a C test harness that runs every case
 in its own process: crashes and infinite loops are reported per case, the
 N-th malloc can be made to fail, leaks are tracked per case and the whole
-binary is also run under valgrind, one function at a time.
+binary is also run under valgrind, one function at a time (an
+AddressSanitizer build of the sources when valgrind is not installed).
 
     python3 -B run.py --project DIR [--only g1,g2] [--list] [--no-color]
                       [--verbose] [--keep] [--quick]
@@ -13,6 +14,7 @@ binary is also run under valgrind, one function at a time.
 
 import os
 import re
+import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -176,6 +178,44 @@ def make_if_needed(rep, ws_dir, state):
     return lib
 
 
+def make_commands(ws_dir):
+    """Commands `make` and `make bonus` would run (make -n -B), in a scratch
+    copy of the workspace. None when make cannot tell."""
+    text = core.makefile_text(ws_dir)
+    if text is None or not core.have("make"):
+        return None
+    dry = os.path.join(os.path.dirname(ws_dir), "make_dry_run")
+    shutil.rmtree(dry, ignore_errors=True)
+    try:
+        shutil.copytree(ws_dir, dry, symlinks=True)
+    except (OSError, shutil.Error):
+        return None
+    goals = [[]] + ([["bonus"]] if "bonus" in core.makefile_targets(text)
+                    else [])
+    out = []
+    try:
+        for goal in goals:
+            res = core.run(["make", "-n", "-B", *goal], cwd=dry, timeout=60)
+            if res.rc == 0:
+                out.append(res.out.decode("utf-8", "replace"))
+    finally:
+        shutil.rmtree(dry, ignore_errors=True)
+    return "\n".join(out) if out else None
+
+
+def project_sources(ws_dir):
+    """{stem: path} of the .c files of the copy, and the folders with a .h"""
+    by_stem, incdirs = {}, set()
+    for root, dirs, files in os.walk(ws_dir):
+        dirs[:] = sorted(x for x in dirs if not x.startswith("."))
+        for f in sorted(files):
+            if f.endswith(".c"):
+                by_stem.setdefault(f[:-2], os.path.join(root, f))
+            elif f.endswith(".h"):
+                incdirs.add(root)
+    return by_stem, sorted(incdirs)
+
+
 def archive_members(lib, workdir):
     """Extract libft.a into workdir. Returns list of member paths."""
     os.makedirs(workdir, exist_ok=True)
@@ -221,15 +261,22 @@ def check_files(rep, project, ws_dir):
     rep.check("all source files at the root (no sub folder)", not nested,
               detail=("found: " + ", ".join(nested[:10])) if nested else None)
 
-    # "Turning in unused files is forbidden": every .c must be in the Makefile
-    mk = core.makefile_text(project) or ""
+    # "Turning in unused files is forbidden": every .c must be compiled.
+    # What make would run (make -n -B), so $(addprefix), $(wildcard) and
+    # friends are expanded. Text search of the Makefile only as a fallback.
+    commands = make_commands(ws_dir)
+    ext = r"\.[co]"
+    how = "not compiled by make / make bonus"
+    if commands is None:
+        commands = core.makefile_text(project) or ""
+        ext = r"(\.c|\.o)?"
+        how = "not in the Makefile"
     unused = [f for f in names if f.endswith(".c")
               and not re.search(r"(?<![\w.])" + re.escape(f[:-2])
-                                + r"(\.c|\.o)?(?![\w])", mk)]
+                                + ext + r"(?![\w])", commands)]
     rep.check("no unused .c file (each one is compiled by the Makefile)",
               not unused,
-              detail=("not in the Makefile: " + ", ".join(unused))
-              if unused else None)
+              detail=(f"{how}: " + ", ".join(unused)) if unused else None)
 
     header = os.path.join(project, "libft.h")
     if not os.path.isfile(header):
@@ -290,7 +337,8 @@ def check_makefile_group(rep, ws_dir, state):
         return
     rep.check("libtool not used (forbidden, use ar)",
               not re.search(r"\blibtool\b", text))
-    rep.check("Makefile uses ar", bool(re.search(r"\bar\b|\$\(AR\)", text)))
+    rep.check("Makefile uses ar",
+              bool(re.search(r"\bar\b|\$[({]AR[)}]", text)))
     lib = os.path.join(ws_dir, "libft.a")
     if ok and os.path.isfile(lib):
         with open(lib, "rb") as fh:
@@ -313,7 +361,9 @@ def check_functions_group(rep, ws_dir, state):
     defined = set()
     for m in members:
         defined |= {s for t, s in nm_lines(m, "--defined-only")}
+    by_stem, incdirs = project_sources(ws_dir)
     bad = []
+    unsure = []
     globals_ = []
     helpers = []
     for m in members:
@@ -322,19 +372,49 @@ def check_functions_group(rep, ws_dir, state):
         allowed = ALLOWED.get(func, {"malloc", "free", "write"})
         und = {s for t, s in nm_lines(m, "-u")}
         ext = sorted(s for s in und if s not in defined
-                     and s not in core.IGNORED_SYMBOLS
-                     and s not in core.COMPILER_ALIASES)
-        wrong = [s for s in ext if s not in allowed]
+                     and s not in core.IGNORED_SYMBOLS)
+        wrong = [s for s in ext if s not in allowed
+                 and s not in core.COMPILER_ALIASES]
+        alias = [s for s in ext if s in core.COMPILER_ALIASES
+                 and s not in allowed]
+        note = ""
+        if wrong or alias:
+            # The optimizer turns plain loops into memset / memcpy / strlen
+            # calls. What counts is what the source calls (at -O0): that
+            # also catches ft_memcpy returning the libc memcpy.
+            src = by_stem.get(base[:-2])
+            found = core.source_calls(src, incdirs,
+                                      workdir=os.path.dirname(ws_dir)) \
+                if src else None
+            if found is not None:
+                wrong = sorted(s for s in found if s not in defined
+                               and s not in core.IGNORED_SYMBOLS
+                               and s not in allowed)
+                called = [s for s in wrong if s in core.COMPILER_ALIASES]
+                if called:
+                    note = (f"; {', '.join(called)} is called in "
+                            f"{os.path.basename(src)} itself, not added "
+                            "by the compiler")
+            elif alias:
+                unsure.append(f"{base}: {', '.join(alias)}")
         if wrong:
-            bad.append(f"{base}: {', '.join(wrong)} (allowed: "
-                       f"{', '.join(sorted(allowed)) or 'none'})")
+            bad.append(f"{base}: {', '.join(sorted(wrong))} (allowed: "
+                       f"{', '.join(sorted(allowed)) or 'none'}{note})")
         for t, s in nm_lines(m, "--defined-only"):
-            if t in "DdBbCGgSsV":
+            # a static inside a function (nm: calls.0, f.calls) is not a
+            # global variable; a static at file scope is one
+            if t in "DBCGSVv" or (t in "dbgs" and "." not in s):
                 globals_.append(f"{s} ({base})")
             elif t == "T" and s not in FUNCS:
                 helpers.append(f"{s} ({base})")
     rep.check("external functions: only the ones the subject allows per "
               "function", not bad, detail="\n".join(bad) or None)
+    if unsure:
+        rep.warn("memcpy / memset / memmove used: could not tell if the "
+                 "compiler added the call or the source makes it",
+                 "\n".join(unsure) + "\n(the source file was not found or "
+                 "does not compile on its own; calling the libc function "
+                 "is forbidden, a call added by the optimizer is not)")
     rep.check("no global variable", not globals_,
               detail=("found: " + ", ".join(globals_)) if globals_ else None)
     rep.check("helper functions are static", not helpers,
@@ -439,6 +519,119 @@ def run_valgrind(exe, func):
     return func, run, leaks
 
 
+# --------------------------------------------------------------------------
+# AddressSanitizer, when valgrind is not installed
+# --------------------------------------------------------------------------
+
+ASAN = ["-fsanitize=address", "-fno-omit-frame-pointer"]
+# allocator_may_return_null: the calloc overflow cases ask for huge sizes
+ASAN_ENV = "exitcode=86:abort_on_error=0:allocator_may_return_null=1"
+
+
+def build_asan_tester(ws, lib):
+    """Harness + the sources behind libft.a, built with ASan.
+
+    -> (exe, None) or (None, why)
+    """
+    res = core.run(["ar", "t", lib], timeout=30)
+    names = [n for n in res.out.decode("utf-8", "replace").split()
+             if n.endswith(".o")]
+    by_stem, incdirs = project_sources(ws.dir)
+    missing = [n for n in names if n[:-2] not in by_stem]
+    if not names or missing:
+        return None, ("source of " + ", ".join(missing[:4])
+                      + " not found" if missing else "libft.a is empty")
+    objdir = ws.tmp("asan_objs")
+    os.makedirs(objdir, exist_ok=True)
+    jobs = []
+    for src in sorted(os.listdir(C_DIR)):
+        if src.endswith(".c"):
+            jobs.append((os.path.join(C_DIR, src),
+                         os.path.join(objdir, "h_" + src[:-2] + ".o"),
+                         [C_DIR], ["-fno-builtin"]))
+    for n in names:
+        jobs.append((by_stem[n[:-2]], os.path.join(objdir, "p_" + n),
+                     incdirs, ["-w"]))
+
+    def compile_one(job):
+        src, obj, incs, extra = job
+        cmd = ["cc", "-g", *ASAN, *extra, "-c", src, "-o", obj]
+        for inc in incs:
+            cmd += ["-I", inc]
+        return src, core.run(cmd, timeout=120)
+
+    with ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as pool:
+        for src, r in pool.map(compile_one, jobs):
+            if r.rc != 0:
+                return None, (f"{os.path.basename(src)} does not compile "
+                              "with -fsanitize=address:\n"
+                              + core.short_errors(text_of(r), 4))
+    exe = ws.tmp("libft_tester_asan")
+    r = core.run(["cc", *ASAN, *[j[1] for j in jobs], "-o", exe,
+                  "-Wl,--wrap=malloc", "-Wl,--wrap=free"], timeout=120)
+    if r.rc != 0:
+        return None, "link failed:\n" + core.short_errors(text_of(r), 4)
+    return exe, None
+
+
+def _asan_once(exe, func, logdir, leaks):
+    """One ASan run. The report goes to a file: some cases close fd 2."""
+    log = os.path.join(logdir, f"asan_{func}_{int(leaks)}")
+    res = core.run([exe, "--nofork", func], timeout=300,
+                   env={"ASAN_OPTIONS": f"{ASAN_ENV}:detect_leaks="
+                        f"{int(leaks)}:log_path={log}"})
+    text = []
+    for name in sorted(os.listdir(logdir)):
+        if name.startswith(os.path.basename(log) + "."):
+            path = os.path.join(logdir, name)
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text.append(fh.read())
+            os.remove(path)
+    res.err += "".join(text).encode()
+    return res
+
+
+def run_asan(exe, func):
+    """-> (func, Run, leaks checked?)"""
+    logdir = os.path.dirname(exe)
+    res = _asan_once(exe, func, logdir, True)
+    if b"LeakSanitizer has encountered a fatal error" in res.err:
+        # LeakSanitizer does not work here (ptrace denied, ...)
+        return func, _asan_once(exe, func, logdir, False), False
+    return func, res, True
+
+
+def asan_result(res):
+    """-> (clean, summary, detail) from an ASan / LeakSanitizer run."""
+    err = res.err.decode("utf-8", "replace")
+    lines = err.splitlines()
+    summary = next((ln for ln in lines if ln.startswith("SUMMARY:")), "")
+    frames = [re.sub(r" 0x[0-9a-f]+ in ", " ", ln.strip()) for ln in lines
+              if re.match(r"\s*#\d+ ", ln)]
+    frames = [re.sub(r"/\S*/42next-libft-[^/]+/(project/|asan_objs/)?", "",
+                     f).replace(C_DIR + os.sep, "") for f in frames
+              if not re.search(r"libasan|libsanitizer|__wrap_|"
+                               r"nx_raw_malloc", f)][:6]
+    summary = re.sub(r"/\S*/42next-libft-[^/]+/(project/)?", "",
+                     summary).replace(C_DIR + os.sep, "")
+    head = next((ln for ln in lines if "ERROR: AddressSanitizer" in ln),
+                None)
+    if head:
+        head = re.sub(r"^==\d+==\s*ERROR: AddressSanitizer: ", "", head)
+        head = re.sub(r" on address 0x[0-9a-f]+.*", "", head)
+        return False, f"memory error ({head})", "\n".join(frames + [summary])
+    if "ERROR: LeakSanitizer" in err:
+        m = re.search(r"(\d+) byte\(s\) leaked in (\d+) allocation", summary)
+        what = (f"{m.group(1)} bytes leaked in {m.group(2)} block(s)"
+                if m else "memory leak")
+        return False, what, "\n".join(frames)
+    if res.timed_out or res.crashed:
+        return False, res.status(), None
+    if res.rc not in (0, None):
+        return False, f"exit code {res.rc}", core.short_errors(err, 6) or None
+    return True, "no leak, no memory error", None
+
+
 def show_case(rep, c):
     name = render(c.call)
     infos = [render(i) for i in c.info]
@@ -474,6 +667,8 @@ def test_functions(rep, ws, funcs, state, args):
     exe = build_tester(rep, ws, lib)
     if not exe:
         return
+    # 5 s per case, and the harness stops a function after 2 timeouts:
+    # one looping function costs about 10 s, it cannot sink the others
     res = core.run([exe, "--timeout", "5", *funcs], cwd=ws.root,
                    timeout=120 + 20 * len(funcs))
     cases, missing, last = parse_output(res.out.decode("utf-8", "replace"))
@@ -481,18 +676,33 @@ def test_functions(rep, ws, funcs, state, args):
     if res.timed_out or res.rc != 0:
         died = res.status()
 
+    todo = [f for f in funcs if f in cases and cases[f]
+            and not any(c.status in ("CRASH", "TIMEOUT", "SKIP")
+                        for c in cases[f])]
+    workers = max(1, min(len(todo), os.cpu_count() or 2))
     vg = {}
-    if args.quick:
+    asan = {}
+    use_vg = core.have("valgrind") and not os.environ.get("NEXT42_NO_VALGRIND")
+    if args.quick or not todo:
         pass
-    elif core.have("valgrind"):
-        todo = [f for f in funcs if f in cases and cases[f]
-                and not any(c.status in ("CRASH", "TIMEOUT")
-                            for c in cases[f])]
-        workers = max(1, min(len(todo), os.cpu_count() or 2))
+    elif use_vg:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             results = pool.map(lambda f: run_valgrind(exe, f), todo)
             for func, run, leaks in results:
                 vg[func] = (run, leaks)
+    else:
+        asan_exe, why = build_asan_tester(ws, lib)
+        if asan_exe:
+            rep.skip("valgrind", "not installed: memory checked with "
+                     "AddressSanitizer + LeakSanitizer instead")
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                for func, run, leaks_on in pool.map(
+                        lambda f: run_asan(asan_exe, f), todo):
+                    asan[func] = (run, leaks_on)
+        else:
+            rep.skip("valgrind", "not installed, and no AddressSanitizer "
+                     f"build ({why.splitlines()[0]}): only the per-case "
+                     "leak tracking checks memory")
 
     for func in funcs:
         rep.section(func)
@@ -506,11 +716,28 @@ def test_functions(rep, ws, funcs, state, args):
                       detail=f"the test program stopped before ({died})"
                       if died else None)
             continue
+        skipped = [c for c in cases[func] if c.status == "SKIP"]
         for c in cases[func]:
-            show_case(rep, c)
+            if c.status != "SKIP":
+                show_case(rep, c)
+        if skipped:
+            rep.skip(f"{len(skipped)} more case(s) of {func}",
+                     "not run: 2 cases already timed out")
         if died and func == last:
             rep.check("test program finished", False, detail=died)
-        if func in vg:
+        if func in asan:
+            run, leaks_on = asan[func]
+            clean, what, detail = asan_result(run)
+            if not clean and any(c.status != "OK" for c in cases[func]):
+                detail = (detail or "") + (
+                    "\n(some cases already failed above: part of this may "
+                    "be memory the tester could not free after them)")
+            rep.check(f"AddressSanitizer ({func}): {what}", clean,
+                      detail=detail.strip() if detail else None)
+            if not leaks_on:
+                rep.skip("LeakSanitizer", "does not work on this system: "
+                         "leaks only checked per case")
+        elif func in vg:
             run, leaks = vg[func]
             if run is None or leaks is None:
                 continue
@@ -527,8 +754,9 @@ def test_functions(rep, ws, funcs, state, args):
                                    "not free after them)")
                 rep.check(f"valgrind ({func}): {vg_describe(leaks)}",
                           leaks.clean, detail=detail)
-        elif not args.quick and func in cases and core.have("valgrind"):
-            rep.skip("valgrind", "skipped: a case crashed or timed out")
+        elif not args.quick and func not in todo and (use_vg or asan):
+            rep.skip("valgrind" if use_vg else "AddressSanitizer",
+                     "skipped: a case crashed or timed out")
 
 
 # --------------------------------------------------------------------------

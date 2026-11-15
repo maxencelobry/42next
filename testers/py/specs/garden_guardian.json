@@ -1,7 +1,7 @@
 {
   "project": "garden_guardian",
   "title": "Garden Guardian",
-  "note": "Subject v2.0. Each script's output is compared line by line to the subject example (blank lines included), the functions are imported and called directly (return value + raised exception), and the source is checked: authorized builtins (super() accepted in ex3 / ex4), no import, type hints, flake8, mypy (ex2's TypeError is a mypy error on purpose: warning only).",
+  "note": "Subject v2.0. Each script's output is compared line by line to the subject example (blank lines included). The output is an example: other wording is a warning, but the values (inputs, numbers, which exception class is caught, in order) must match. The functions are imported and called directly (return value + raised exception), and the source is checked: authorized builtins (super() accepted in ex3 / ex4), no import, type hints, flake8, mypy (ex2's TypeError is a mypy error on purpose: warning only).",
   "exercises": [
     {
       "id": "ex0",
@@ -185,7 +185,10 @@
             "exit_code": 0,
             "stdout": {
               "type": "equals",
-              "expected": "=== Garden Watering System ===\n\nTesting valid plants...\nOpening watering system\nWatering Tomato: [OK]\nWatering Lettuce: [OK]\nWatering Carrots: [OK]\nClosing watering system\n\nTesting invalid plants...\nOpening watering system\nWatering Tomato: [OK]\nCaught PlantError: Invalid plant name to water: 'lettuce'\n.. ending tests and returning to main\nClosing watering system\n\nCleanup always happens, even with errors!"
+              "expected": "=== Garden Watering System ===\n\nTesting valid plants...\nOpening watering system\nWatering Tomato: [OK]\nWatering Lettuce: [OK]\nWatering Carrots: [OK]\nClosing watering system\n\nTesting invalid plants...\nOpening watering system\nWatering Tomato: [OK]\nCaught PlantError: Invalid plant name to water: 'lettuce'\n.. ending tests and returning to main\nClosing watering system\n\nCleanup always happens, even with errors!",
+              "ignore": [
+                "'lettuce'"
+              ]
             }
           }
         },
@@ -220,6 +223,7 @@
   ],
   "defaults": {
     "typed": true,
-    "imports": []
+    "imports": [],
+    "wording": "example"
   }
 }

@@ -97,6 +97,95 @@ def normalize(text):
     return "\n".join(lines)
 
 
+# Values in a line of output, for subjects whose output is only an example:
+# numbers, quoted strings, CamelCase names (exception classes), True / False /
+# None, and the test's own inputs (argv / stdin / args) echoed back.
+_QUOTED = r"""(?<!\w)'[^'\n]*'(?!\w)|(?<!\w)"[^"\n]*"(?!\w)"""
+_NUMBER = r"(?<![\w.])-?\d+(?:\.\d+)?(?!\w)"
+_CAMEL = r"\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+\b"
+_CONST = r"\b(?:True|False|None)\b"
+
+
+def value_tokens(text, inputs=()):
+    phrases = sorted({normalize(p).strip() for p in inputs if str(p).strip()},
+                     key=len, reverse=True)
+    parts = [r"(?<!\w)" + re.escape(p) + r"(?!\w)" for p in phrases]
+    pattern = "|".join(parts + [_QUOTED, _NUMBER, _CAMEL, _CONST])
+    out = []
+    for m in re.finditer(pattern, text):
+        tok = m.group(0)
+        if len(tok) >= 2 and tok[0] in "'\"" and tok[-1] == tok[0]:
+            tok = tok[1:-1]
+        out.append(tok)
+    return out
+
+
+def _same_value(a, b):
+    try:
+        return float(a) == float(b)
+    except ValueError:
+        return a == b
+
+
+def loose_line(expected, got, rule):
+    """(ok, why): every value of the expected line is found, in order, in
+    the line that was printed (the words around them may differ)."""
+    if (expected.strip() == "") != (got.strip() == ""):
+        return False, "blank line expected" if not expected.strip() else \
+            "non-blank line expected"
+    for pat in rule.get("ignore", []):
+        expected = re.sub(pat, " ", expected)
+    inputs = rule.get("inputs", [])
+    want, have = value_tokens(expected, inputs), value_tokens(got, inputs)
+    pos = 0
+    for tok in want:
+        while pos < len(have) and not _same_value(have[pos], tok):
+            pos += 1
+        if pos == len(have):
+            return False, (f"value {tok!r} not found (values expected: "
+                           f"{want}, printed: {have})")
+        pos += 1
+    return True, ""
+
+
+def loose_equals(expected, norm, rule):
+    """For `"wording": "example"`: the subject shows the output as an
+    example, so another wording is accepted (a note, shown as WARN) as long
+    as the same non-blank lines carry the same values, and the phrases the
+    subject does require word for word (`require`) are there."""
+    exp = [ln for ln in expected.split("\n") if ln.strip()]
+    got = [ln for ln in norm.split("\n") if ln.strip()]
+    if len(exp) != len(got):
+        return False, (f"{len(got)} non-blank line(s) printed, the subject "
+                       f"shows {len(exp)}")
+    for e, g in zip(exp, got):
+        ok, why = loose_line(e, g, rule)
+        if not ok:
+            return False, f"{e!r} vs {g!r}: {why}"
+    pos = 0
+    for phrase in rule.get("require", []):
+        idx = norm.find(normalize(phrase), pos)
+        if idx < 0:
+            return False, (f"missing {normalize(phrase)!r} (required by the "
+                           "subject, word for word)")
+        pos = idx + len(normalize(phrase))
+    for phrase in rule.get("forbid", []):
+        if normalize(phrase) in norm:
+            return False, (f"{normalize(phrase)!r} is the subject's message "
+                           "for the other case")
+    return True, ""
+
+
+def _first_diff_line(expected, actual):
+    exp, act = expected.split("\n"), actual.split("\n")
+    for i in range(max(len(exp), len(act))):
+        e = exp[i] if i < len(exp) else None
+        a = act[i] if i < len(act) else None
+        if e != a:
+            return f"line {i + 1}: {a!r} (subject: {e!r})"
+    return ""
+
+
 def check_rule(rule, actual):
     """Return (ok, detail). `rule` is a match descriptor dict."""
     if rule is None:
@@ -108,6 +197,14 @@ def check_rule(rule, actual):
         expected = normalize(rule["expected"])
         if norm == expected:
             return True, ""
+        if rule.get("wording") == "example":
+            ok, why = loose_equals(expected, norm, rule)
+            if ok:
+                NOTES.append("output worded differently from the subject "
+                             "example (accepted, same values): "
+                             + _first_diff_line(expected, norm))
+                return True, ""
+            return False, _diff(expected, norm) + "\n" + why
         return False, _diff(expected, norm)
 
     if rtype == "contains_all":
@@ -161,10 +258,11 @@ def check_rule(rule, actual):
 
 
 def match_lines(rule, norm):
-    """Line by line, blank lines included. An item is a plain string (exact)
-    or {"re": regex, "subject": text}: the regex must match the whole line;
-    if it does but the line differs from the subject's text, a note is left
-    (the subject lets some messages be customised)."""
+    """Line by line, blank lines included. An item is a plain string (exact,
+    or same values when the rule has "wording": "example") or {"re": regex,
+    "subject": text}: the regex must match the whole line; if it does but
+    the line differs from the subject's text, a note is left (the subject
+    lets some messages be customised)."""
     got = norm.split("\n") if norm else []
     want = rule["items"]
     start = 0
@@ -173,12 +271,22 @@ def match_lines(rule, norm):
     for i, item in enumerate(want):
         n = start + i
         line = got[n] if n < len(got) else None
+        extra = ""
         if isinstance(item, dict):
             ok = line is not None and re.fullmatch(item["re"], line)
             shown = item.get("subject", "/" + item["re"] + "/")
         else:
             ok = line == normalize(item)
             shown = item
+            if not ok and line is not None \
+                    and rule.get("wording") == "example":
+                ok, why = loose_line(normalize(item), line, rule)
+                if ok:
+                    NOTES.append(f"line {n + 1} worded differently from the "
+                                 f"subject example (accepted, same values): "
+                                 f"{line!r} vs {normalize(item)!r}")
+                else:
+                    extra = why
         if not ok:
             context = got[max(0, n - 2):n]
             msg = (f"line {n + 1}: expected {shown!r}\n"
@@ -189,6 +297,8 @@ def match_lines(rule, norm):
             if context:
                 msg += "\n  after: " + "\n         ".join(
                     repr(c) for c in context)
+            if extra:
+                msg += "\n  " + extra
             return False, msg
         if isinstance(item, dict) and "subject" in item:
             if line != normalize(item["subject"]):
@@ -1030,7 +1140,38 @@ def load_spec(name):
     spec["_path"] = os.path.abspath(path)
     defaults = spec.get("defaults", {})
     spec["exercises"] = [{**defaults, **ex} for ex in spec["exercises"]]
+    for ex in spec["exercises"]:
+        for test in ex.get("tests", []):
+            _spread_wording(test, test.get("wording", ex.get("wording")))
     return spec
+
+
+def _test_rules(test):
+    match = test.get("match")
+    rules = []
+    if isinstance(match, dict) and "type" in match:
+        rules.append(match)
+    elif isinstance(match, dict):
+        for stream in ("stdout", "stderr", "output"):
+            r = match.get(stream)
+            rules += (r if isinstance(r, list) else [r]) if r else []
+    rules += [o["match"] for o in test.get("outputs", []) if o.get("match")]
+    return rules
+
+
+def _spread_wording(test, wording):
+    """"wording": "example" (spec defaults, exercise or test): the subject
+    only shows the output as an example. Copied onto each equals / lines
+    rule, with the test's inputs (echoed values count as values)."""
+    inputs = [str(a) for a in test.get("argv", [])]
+    inputs += [a for a in test.get("args", []) if isinstance(a, str)]
+    inputs += test.get("stdin", "").splitlines()
+    for rule in _test_rules(test):
+        if rule.get("type") not in ("equals", "lines"):
+            continue
+        if wording:
+            rule.setdefault("wording", wording)
+        rule.setdefault("inputs", inputs)
 
 
 def candidate_roots(path):

@@ -282,6 +282,7 @@ static int	g_out = -1;
 static int	g_status;		/* 0 ok, 1 warn, 2 ko (child side) */
 static char	g_call[2048];
 static int	g_soft;
+static int	g_func_timeouts;	/* cases of this function that timed out */
 
 static void	put_line(char tag, const char *text)
 {
@@ -377,6 +378,7 @@ int	nx_failed(void)
 
 void	nx_func(const char *name)
 {
+	g_func_timeouts = 0;
 	if (g_nx_nofork)
 		return ;
 	printf("@F\t%s\n", name);
@@ -428,6 +430,7 @@ static int	vcase(const char *fmt, va_list ap, int soft)
 	int		devnull;
 	const char	*status;
 	const char	*line;
+	int			got_m;
 
 	vsnprintf(g_call, sizeof(g_call), fmt, ap);
 	g_soft = soft;
@@ -438,6 +441,13 @@ static int	vcase(const char *fmt, va_list ap, int soft)
 		malloc_reset();
 		g_status = 0;
 		return (1);
+	}
+	/* two timeouts already: the function loops, do not wait for each case */
+	if (g_func_timeouts >= 2)
+	{
+		printf("@C\tSKIP\t%s\n", g_call);
+		fflush(stdout);
+		return (0);
 	}
 	fflush(stdout);
 	if (pipe(fds) < 0)
@@ -500,6 +510,7 @@ static int	vcase(const char *fmt, va_list ap, int soft)
 		return (0);
 	data[len] = 0;
 	g_last_calls = 0;
+	got_m = 0;
 	status = "OK";
 	for (line = data; line && *line; line = strchr(line, '\n'),
 		line = line ? line + 1 : NULL)
@@ -509,12 +520,17 @@ static int	vcase(const char *fmt, va_list ap, int soft)
 		else if (!strncmp(line, "S\tWARN", 6) && !strcmp(status, "OK"))
 			status = "WARN";
 		else if (!strncmp(line, "M\t", 2))
+		{
 			g_last_calls = atol(line + 2);
+			got_m = 1;
+		}
 	}
 	if (WIFSIGNALED(wst))
 		status = WTERMSIG(wst) == SIGALRM ? "TIMEOUT" : "CRASH";
-	else if (WIFEXITED(wst) && WEXITSTATUS(wst) != 0)
+	else if (WIFEXITED(wst) && (WEXITSTATUS(wst) != 0 || !got_m))
 		status = "KO";
+	if (WIFSIGNALED(wst) && WTERMSIG(wst) == SIGALRM)
+		g_func_timeouts++;
 	if (soft && strcmp(status, "OK"))
 	{
 		print_block("WARN", data);
@@ -536,6 +552,9 @@ static int	vcase(const char *fmt, va_list ap, int soft)
 	else if (WIFEXITED(wst) && WEXITSTATUS(wst) != 0)
 		printf("@D\tthe test process exited with code %d (exit() called "
 			"by the library?)\n", WEXITSTATUS(wst));
+	else if (WIFEXITED(wst) && !got_m)
+		printf("@D\tthe function exited the program (exit(0) called by the "
+			"library?): the case never reached its end\n");
 	fflush(stdout);
 	__real_free(data);
 	return (0);

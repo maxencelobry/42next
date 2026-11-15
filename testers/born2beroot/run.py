@@ -280,7 +280,8 @@ def group_script(rep, opts):
   {core.bold('check.sh')}: {CHECK_SH}
 
   The VM cannot be inspected from here. Copy check.sh into the VM and run it
-  there as root (read-only, it changes nothing):
+  there as root. It changes no configuration; it runs your monitoring.sh
+  once, with wall replaced by a print to stdout:
 
     {core.accent(scp)}
     {core.accent(ssh)}

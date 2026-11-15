@@ -1,7 +1,7 @@
 {
   "project": "data_quest",
   "title": "Data Quest",
-  "note": "Subject v2.0. argv/stdin exercises are compared to the subject line by line (blank lines included). The random ones (achievements, stream, alchemist) are parsed back and recomputed (union, intersection, removals, average...). Source: authorized builtins (str/int/float for the whole module, each collection type once its exercise introduced it), allowed imports only, no file I/O, type hints, flake8, mypy.",
+  "note": "Subject v2.0. argv/stdin exercises are compared to the subject line by line (\"mimic the example\": other wording is a warning, the values and the number of lines must match). The random ones (achievements, stream, alchemist) are parsed back and recomputed (union, intersection, removals, average...). Source: authorized builtins (str/int/float for the whole module, each collection type once its exercise introduced it), allowed imports only, no file I/O, type hints, flake8, mypy.",
   "exercises": [
     {
       "id": "ex0",
@@ -23,7 +23,10 @@
             "exit_code": 0,
             "stdout": {
               "type": "equals",
-              "expected": "=== Command Quest ===\nProgram name: ft_command_quest.py\nNo arguments provided!\nTotal arguments: 1"
+              "expected": "=== Command Quest ===\nProgram name: ft_command_quest.py\nNo arguments provided!\nTotal arguments: 1",
+              "require": [
+                "ft_command_quest.py"
+              ]
             }
           }
         },
@@ -39,7 +42,10 @@
             "exit_code": 0,
             "stdout": {
               "type": "equals",
-              "expected": "=== Command Quest ===\nProgram name: ft_command_quest.py\nArguments received: 3\nArgument 1: hello\nArgument 2: world\nArgument 3: 42\nTotal arguments: 4"
+              "expected": "=== Command Quest ===\nProgram name: ft_command_quest.py\nArguments received: 3\nArgument 1: hello\nArgument 2: world\nArgument 3: 42\nTotal arguments: 4",
+              "require": [
+                "ft_command_quest.py"
+              ]
             }
           }
         },
@@ -53,7 +59,10 @@
             "exit_code": 0,
             "stdout": {
               "type": "equals",
-              "expected": "=== Command Quest ===\nProgram name: ft_command_quest.py\nArguments received: 1\nArgument 1: Data Quest\nTotal arguments: 2"
+              "expected": "=== Command Quest ===\nProgram name: ft_command_quest.py\nArguments received: 1\nArgument 1: Data Quest\nTotal arguments: 2",
+              "require": [
+                "ft_command_quest.py"
+              ]
             }
           }
         }
@@ -181,7 +190,11 @@
             "exit_code": 0,
             "stdout": {
               "type": "equals",
-              "expected": "=== Game Coordinate System ===\n\nGet a first set of coordinates\nEnter new coordinates as floats in format 'x,y,z': Invalid syntax\nEnter new coordinates as floats in format 'x,y,z': Got a first tuple: (1.0, 2.5, 3.0)\nIt includes: X=1.0, Y=2.5, Z=3.0\nDistance to center: 4.0311\n\nGet a second set of coordinates\nEnter new coordinates as floats in format 'x,y,z': Error on parameter 'abc': could not convert string to float: 'abc'\nEnter new coordinates as floats in format 'x,y,z': Distance between the 2 sets of coordinates: 4.9244"
+              "expected": "=== Game Coordinate System ===\n\nGet a first set of coordinates\nEnter new coordinates as floats in format 'x,y,z': Invalid syntax\nEnter new coordinates as floats in format 'x,y,z': Got a first tuple: (1.0, 2.5, 3.0)\nIt includes: X=1.0, Y=2.5, Z=3.0\nDistance to center: 4.0311\n\nGet a second set of coordinates\nEnter new coordinates as floats in format 'x,y,z': Error on parameter 'abc': could not convert string to float: 'abc'\nEnter new coordinates as floats in format 'x,y,z': Distance between the 2 sets of coordinates: 4.9244",
+              "ignore": [
+                "'x,y,z'",
+                "\\bthe 2 sets\\b"
+              ]
             }
           }
         },
@@ -193,7 +206,11 @@
             "exit_code": 0,
             "stdout": {
               "type": "equals",
-              "expected": "=== Game Coordinate System ===\n\nGet a first set of coordinates\nEnter new coordinates as floats in format 'x,y,z': Invalid syntax\nEnter new coordinates as floats in format 'x,y,z': Invalid syntax\nEnter new coordinates as floats in format 'x,y,z': Got a first tuple: (0.0, 0.0, 0.0)\nIt includes: X=0.0, Y=0.0, Z=0.0\nDistance to center: 0.0\n\nGet a second set of coordinates\nEnter new coordinates as floats in format 'x,y,z': Distance between the 2 sets of coordinates: 13.0"
+              "expected": "=== Game Coordinate System ===\n\nGet a first set of coordinates\nEnter new coordinates as floats in format 'x,y,z': Invalid syntax\nEnter new coordinates as floats in format 'x,y,z': Invalid syntax\nEnter new coordinates as floats in format 'x,y,z': Got a first tuple: (0.0, 0.0, 0.0)\nIt includes: X=0.0, Y=0.0, Z=0.0\nDistance to center: 0.0\n\nGet a second set of coordinates\nEnter new coordinates as floats in format 'x,y,z': Distance between the 2 sets of coordinates: 13.0",
+              "ignore": [
+                "'x,y,z'",
+                "\\bthe 2 sets\\b"
+              ]
             }
           }
         },
@@ -378,7 +395,26 @@
             "exit_code": 0,
             "stdout": {
               "type": "equals",
-              "expected": "=== Inventory System Analysis ===\nRedundant item 'sword' - discarding\nError - invalid parameter 'hello'\nQuantity error for 'key': invalid literal for int() with base 10: 'value'\nGot inventory: {'sword': 1, 'potion': 5, 'shield': 2, 'armor': 3, 'helmet': 1}\nItem list: ['sword', 'potion', 'shield', 'armor', 'helmet']\nTotal quantity of the 5 items: 12\nItem sword represents 8.3%\nItem potion represents 41.7%\nItem shield represents 16.7%\nItem armor represents 25.0%\nItem helmet represents 8.3%\nItem most abundant: potion with quantity 5\nItem least abundant: sword with quantity 1\nUpdated inventory: {'sword': 1, 'potion': 5, 'shield': 2, 'armor': 3, 'helmet': 1, 'magic_item': 1}"
+              "expected": "=== Inventory System Analysis ===\nRedundant item 'sword' - discarding\nError - invalid parameter 'hello'\nQuantity error for 'key': invalid literal for int() with base 10: 'value'\nGot inventory: {'sword': 1, 'potion': 5, 'shield': 2, 'armor': 3, 'helmet': 1}\nItem list: ['sword', 'potion', 'shield', 'armor', 'helmet']\nTotal quantity of the 5 items: 12\nItem sword represents 8.3%\nItem potion represents 41.7%\nItem shield represents 16.7%\nItem armor represents 25.0%\nItem helmet represents 8.3%\nItem most abundant: potion with quantity 5\nItem least abundant: sword with quantity 1\nUpdated inventory: {'sword': 1, 'potion': 5, 'shield': 2, 'armor': 3, 'helmet': 1, 'magic_item': 1}",
+              "inputs": [
+                "sword:1",
+                "potion:5",
+                "shield:2",
+                "armor:3",
+                "helmet:1",
+                "sword:2",
+                "hello",
+                "key:value",
+                "sword",
+                "potion",
+                "shield",
+                "armor",
+                "helmet",
+                "hello",
+                "key",
+                "value",
+                "magic_item"
+              ]
             }
           }
         },
@@ -396,8 +432,14 @@
             "stdout": {
               "type": "python",
               "code": [
-                "assert 'Item most abundant: b with quantity 3' in lines, 'most abundant should be b (first of b/c)'",
-                "assert 'Item least abundant: a with quantity 1' in lines, 'least abundant should be a (first of a/d)'"
+                "import re",
+                "def about(word):",
+                "    got = [ln for ln in lines if word in ln.lower() and 'abundant' in ln.lower()]",
+                "    assert got, 'no \"%s abundant\" line' % word",
+                "    return got[0]",
+                "most, least = about('most'), about('least')",
+                "assert re.search(r'\\bb\\b', most) and not re.search(r'\\bc\\b', most), 'most abundant should be b (first of b/c): %r' % most",
+                "assert re.search(r'\\ba\\b', least) and not re.search(r'\\bd\\b', least), 'least abundant should be a (first of a/d): %r' % least"
               ]
             }
           }
@@ -594,6 +636,7 @@
     }
   ],
   "defaults": {
-    "typed": true
+    "typed": true,
+    "wording": "example"
   }
 }

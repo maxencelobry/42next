@@ -102,6 +102,7 @@ class Ctx:
         self.checker_name = None
         self.fail_dir = os.path.join(tempfile.gettempdir(),
                                      "42next-push_swap-inputs")
+        self._pruned = False
 
     def ps(self, argv, timeout=None):
         return run([self.binary, *argv], cwd=self.ws.dir,
@@ -122,7 +123,20 @@ class Ctx:
         line = "./push_swap " + shlex.join(argv) if argv else "./push_swap"
         if len(line) <= max_len:
             return line
-        os.makedirs(self.fail_dir, exist_ok=True)
+        if not os.path.isdir(self.fail_dir):
+            os.makedirs(self.fail_dir, exist_ok=True)
+        elif not self._pruned:
+            # the saved inputs are for replaying today's output: drop the
+            # ones older than a day so the folder does not grow forever
+            old = time.time() - 24 * 3600
+            for f in os.listdir(self.fail_dir):
+                p = os.path.join(self.fail_dir, f)
+                try:
+                    if os.path.getmtime(p) < old:
+                        os.remove(p)
+                except OSError:
+                    pass
+        self._pruned = True
         flags = [a for a in argv if a.startswith("--")]
         nums = [a for a in argv if not a.startswith("--")]
         fd, path = tempfile.mkstemp(prefix=f"n{len(nums)}-", suffix=".txt",
@@ -247,6 +261,36 @@ def g_norm(ctx):
     core.check_norm(ctx.rep, ctx.ws.dir)
 
 
+_SUBMAKE = re.compile(
+    r"(?:^|[\s;&|(])(?:\S*/)?g?make\b[^\n]*?"
+    r"(?:\s-[a-zA-Z]*C\s*|\s--directory[= ]?\s*)['\"]?(?:\S*/)?libft/?"
+    r"(?:['\"\s;&|)]|$)"
+    r"|\bcd\s+['\"]?(?:\S*/)?libft/?['\"]?\s*(?:&&|;)\s*(?:\S*/)?g?make\b",
+    re.M)
+
+
+def libft_through_make(directory, text):
+    """Does the default goal run make in libft/? Asked to make itself: a
+    dry run (-n) that remakes everything (-B) and prints the directories
+    (-w). $(MAKE) lines still run under -n, so the sub-make says "Entering
+    directory .../libft"; a plain `make -C libft` or `cd libft && make` is
+    only printed. Falls back to reading the Makefile if the dry run fails."""
+    res = run(["make", "-n", "-B", "-w"], cwd=directory, timeout=60,
+              env={"LC_ALL": "C", "MAKEFLAGS": ""})
+    if res.rc == 0:
+        out = (res.out + res.err).decode("utf-8", "replace")
+        libdir = os.path.realpath(os.path.join(directory, "libft"))
+        for m in re.finditer(r"Entering directory [`'\"]([^'\"\n]+)['\"]",
+                             out):
+            if os.path.realpath(m.group(1)) == libdir:
+                return True
+        return bool(_SUBMAKE.search(out))
+    recipes = "\n".join(ln for ln in text.splitlines()
+                        if ln.startswith("\t"))
+    return "libft" in text.lower() and bool(
+        re.search(r"\$[({]MAKE[)}]|(?:^|[\s;&|])make\b", recipes))
+
+
 def build(ctx, with_checks):
     if with_checks:
         ctx.rep.section("makefile")
@@ -254,13 +298,14 @@ def build(ctx, with_checks):
                                  bonus=True)
         text = core.makefile_text(ctx.ws.dir) or ""
         if os.path.isdir(ctx.ws.path("libft")):
-            uses = "libft" in text and re.search(r"\$\(MAKE\)|make\s+-C", text)
-            ctx.rep.check("libft built through its own Makefile",
-                          bool(uses) and os.path.isfile(
-                              ctx.ws.path("libft", "Makefile")),
+            has_mk = os.path.isfile(ctx.ws.path("libft", "Makefile"))
+            uses = has_mk and libft_through_make(ctx.ws.dir, text)
+            ctx.rep.check("libft built through its own Makefile", uses,
                           detail=None if uses else
-                          "subject: the Makefile must compile libft with "
-                          "its Makefile")
+                          ("no libft/Makefile" if not has_mk else
+                           "`make` never runs make in libft/")
+                          + "\nsubject: the Makefile must compile libft "
+                          "with its Makefile")
         return ok
     res = run(["make"], cwd=ctx.ws.dir, timeout=300)
     if res.rc != 0 or not os.path.exists(ctx.binary):
@@ -291,7 +336,7 @@ def g_functions(ctx, binaries):
     for b in binaries:
         core.check_functions(rep, [b], ALLOWED,
                              label=f"{os.path.basename(b)}: "
-                             "external functions")
+                             "external functions", sources=ctx.ws.dir)
     if not core.have("nm"):
         return
     for b in binaries:
@@ -721,11 +766,13 @@ def g_perf(ctx):
 def parse_class(text):
     t = text.lower().replace(" ", "").replace("*", "").replace("^", "")
     t = t.replace("²", "2").replace("√", "sqrt").replace("·", "")
-    if "sqrt" in t or "n1.5" in t or "n3/2" in t:
+    t = t.replace("×", "").replace("{", "(").replace("}", ")")
+    flat = t.replace("(", "").replace(")", "")    # n^(3/2) -> n3/2
+    if "sqrt" in t or "n1.5" in flat or "n3/2" in flat:
         return "nsqrtn"
     if "log" in t:
         return "nlogn"
-    if re.search(r"o\(n2\)", t):
+    if re.search(r"o\(n2\)|o\(nn\)", t):
         return "n2"
     return None
 
@@ -782,8 +829,21 @@ def check_bench(ctx, nums, flags, expect_name, expect_class, tag):
     if b.strategy is None:
         probs.append('no "strategy: <name> / <class>" line')
     else:
-        if expect_name.lower() not in b.strategy.lower():
-            probs.append(f"strategy {b.strategy!r} should name {expect_name}")
+        # the subject wants "the name of the strategy used"; it calls them
+        # Simple / Medium / Complex / Adaptive but does not impose the word
+        name = re.sub(r"\bO\s*\(.*", "", b.strategy, flags=re.I)
+        if not re.search(r"[A-Za-z]", name):
+            probs.append(f"strategy {b.strategy!r}: no strategy name "
+                         "(subject: the name of the strategy used)")
+        elif expect_name.lower() not in b.strategy.lower():
+            other = [s for s in ("Simple", "Medium", "Complex", "Adaptive")
+                     if re.search(rf"\b{s}\b", name, re.I)]
+            if other:
+                probs.append(f"strategy {b.strategy!r}: {expect_name} was "
+                             f"selected, the bench names {other[0]}")
+            else:
+                warns.append(f"strategy {b.strategy!r} does not say "
+                             f"{expect_name!r} (the subject's name for it)")
         if b.klass is None:
             warns.append("could not read a complexity class in "
                          f"{b.strategy!r}")
@@ -938,6 +998,7 @@ def g_disorder(ctx):
     rep.info(f"{'disorder':>10}{'n=100 ops':>12}{'n=500 ops':>12}"
              "   bench class")
     seed = ctx.opts.seed or 31337
+    unread = []     # runs whose --bench gave no readable complexity class
     for target, label in DISORDER_TARGETS:
         cells, classes = [], []
         for n in (100, 500):
@@ -956,6 +1017,8 @@ def g_disorder(ctx):
             b = Bench(out.res.err)
             if b.klass is None:
                 classes.append("?")
+                if d != 0:
+                    unread.append((name, b.strategy))
                 continue
             classes.append(sim.CLASS_NAMES[b.klass])
             if d == 0:
@@ -973,6 +1036,16 @@ def g_disorder(ctx):
     rep.info("note: ops at low disorder are not comparable to the "
              "random-input "
              "thresholds; the class is read from --bench")
+    if unread:
+        said = sorted({repr(s) if s else "no \"strategy:\" line"
+                       for _, s in unread})
+        rep.warn(f"adaptive regime not checked on {len(unread)} of "
+                 f"{2 * (len(DISORDER_TARGETS) - 1)} runs: no complexity "
+                 "class could be read from --bench",
+                 "bench said: " + ", ".join(said[:4])
+                 + f"\nfirst run: {unread[0][0]}"
+                 "\nwrite the class as O(n²) / O(n√n) / O(n log n) "
+                 "(or n^2, n*sqrt(n), n^1.5, n log n)")
 
 
 # --------------------------------------------------------------------------

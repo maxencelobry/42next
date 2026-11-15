@@ -682,7 +682,9 @@ static void	striteri_case(const char *s, int upper, const char *label)
 	g_ncalls = 0;
 	g_badptr = 0;
 	g_iter_s = buf;
+	nx_track(1);
 	ft_striteri(buf, upper ? iter_upper : iter_record);
+	nx_track(0);
 	if (strcmp(buf, exp))
 		nx_expect(nx_f("s = %s", nx_s(exp)), nx_f("s = %s", nx_s(buf)));
 	if (!upper)
@@ -735,11 +737,17 @@ static void	put_case(const char *call, t_emit fn, const void *arg,
 	if (target > 0)
 	{
 		dup2(fds[1], target);
+		nx_track(1);
 		fn(target, arg);
+		nx_track(0);
 		close(target);
 	}
 	else
+	{
+		nx_track(1);
 		fn(fds[1], arg);
+		nx_track(0);
+	}
 	close(fds[1]);
 	got = nx_raw_malloc(elen + 4096);
 	len = 0;
@@ -757,8 +765,10 @@ static void	put_badfd(const char *call, t_emit fn, const void *arg)
 {
 	if (!nx_case("%s (invalid fd: no crash)", call))
 		return ;
+	nx_track(1);
 	fn(-1, arg);
 	fn(1000, arg);
+	nx_track(0);
 	nx_end();
 }
 

@@ -1,5 +1,7 @@
 /* 42next get_next_line runner. Linked with -Wl,--wrap=read so the test can
- * count bytes read and make read() fail on purpose.
+ * count bytes read and make read() fail on purpose. Built with
+ * -DNEXT42_NO_WRAP where ld has no --wrap (macOS): no read() counting, no
+ * read() failure, no malloc tracking; run.py skips those checks.
  *
  * usage: runner MODE OUTFILE ARGS...   (see run.py)
  * output records: "L<len>:<bytes>\n" for a line, "N\n" for NULL,
@@ -16,17 +18,27 @@
 #include <sys/wait.h>
 
 char		*get_next_line(int fd);
+
+#define MAXBLK 65536
+
+static size_t	g_blksz[MAXBLK];
+static int		g_nblk;
+static int		g_on;
+static int		g_fail_fd = -1000;
+static long		g_fail_left;	/* bytes read() still gives g_fail_fd */
+static long		g_reads;
+static long		g_bytes;
+
+#ifdef NEXT42_NO_WRAP
+# define __real_read read
+#else
 ssize_t		__real_read(int fd, void *buf, size_t n);
 
 /* ---- malloc tracking: blocks allocated inside get_next_line() ---- */
 void		*__real_malloc(size_t n);
 void		__real_free(void *p);
-#define MAXBLK 65536
 
 static void		*g_blk[MAXBLK];
-static size_t	g_blksz[MAXBLK];
-static int		g_nblk;
-static int		g_on;
 
 void	*__wrap_malloc(size_t n)
 {
@@ -60,6 +72,33 @@ void	__wrap_free(void *p)
 	__real_free(p);
 }
 
+/* read() of g_fail_fd gives g_fail_left more bytes, then fails with EIO */
+ssize_t	__wrap_read(int fd, void *buf, size_t n)
+{
+	ssize_t	r;
+
+	g_reads++;
+	if (fd == g_fail_fd)
+	{
+		if (g_fail_left <= 0)
+		{
+			errno = EIO;
+			return (-1);
+		}
+		if ((long)n > g_fail_left)
+			n = (size_t)g_fail_left;
+	}
+	r = __real_read(fd, buf, n);
+	if (r > 0)
+	{
+		g_bytes += r;
+		if (fd == g_fail_fd)
+			g_fail_left -= r;
+	}
+	return (r);
+}
+#endif
+
 static char	*gnl(int fd)
 {
 	char	*line;
@@ -70,26 +109,7 @@ static char	*gnl(int fd)
 	return (line);
 }
 
-static int	g_fail_fd = -1000;
-static long	g_reads;
-static long	g_bytes;
 static FILE	*g_out;
-
-ssize_t	__wrap_read(int fd, void *buf, size_t n)
-{
-	ssize_t	r;
-
-	g_reads++;
-	if (fd == g_fail_fd)
-	{
-		errno = EIO;
-		return (-1);
-	}
-	r = __real_read(fd, buf, n);
-	if (r > 0)
-		g_bytes += r;
-	return (r);
-}
 
 static void	rec(char *line)
 {
@@ -172,6 +192,8 @@ int	main(int ac, char **av)
 
 	if (ac < 3)
 		return (2);
+	(void)g_fail_fd;
+	(void)g_fail_left;
 	mode = av[1];
 	g_out = fopen(av[2], "w");
 	if (!g_out)
@@ -241,14 +263,17 @@ int	main(int ac, char **av)
 		call(fd);
 		close(fd);
 	}
-	else if (!strcmp(mode, "readerr") && ac == 6)
+	else if (!strcmp(mode, "readerr") && (ac == 6 || ac == 7))
 	{
 		long	k = atol(av[4]);
 		int		fd2;
 
+		/* read k lines, then read() gives av[6] more bytes (default 0)
+		 * and fails: with bytes, the error comes in the middle of a line */
 		fd = open_or_die(av[3]);
 		while (k-- > 0)
 			call(fd);
+		g_fail_left = ac == 7 ? atol(av[6]) : 0;
 		g_fail_fd = fd;
 		call(fd);
 		call(fd);

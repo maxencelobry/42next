@@ -12,8 +12,14 @@ command -v git >/dev/null || { echo "git is required"; exit 1; }
 command -v node >/dev/null || { echo "node 18+ is required: https://nodejs.org/en/download"; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required: https://www.python.org/downloads/"; exit 1; }
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
-if [ -f "$here/bin/42next.js" ]; then
+# local-clone mode only when this script is a real file next to bin/42next.js.
+# Piped (curl | bash) there is no script file: never link the current folder.
+src="${BASH_SOURCE[0]:-}"
+here=""
+if [ -n "$src" ] && [ -f "$src" ]; then
+	here="$(cd "$(dirname "$src")" 2>/dev/null && pwd || true)"
+fi
+if [ -n "$here" ] && [ -f "$here/bin/42next.js" ]; then
 	dir="$here"
 else
 	# older installs lived in ~/42next: move them out of sight

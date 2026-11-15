@@ -3,7 +3,8 @@
 
 Every scenario is a separate process (a crash or an infinite loop only fails
 that scenario). The runner is linked with -Wl,--wrap=read so the tests can
-count the bytes read and make read() fail on purpose.
+count the bytes read and make read() fail on purpose. Apple ld64 has no
+--wrap: on macOS those checks (and the per-call malloc tracking) are skipped.
 """
 
 import itertools
@@ -11,6 +12,7 @@ import os
 import random
 import re
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -28,7 +30,12 @@ QUICK_SIZES = [1, 42, 1000, None]
 MAX_KO = 15
 RUN_ENV = {"ASAN_OPTIONS": "detect_leaks=0:exitcode=86:abort_on_error=0"}
 MEM_SIZES = (1, 42, 10000000)
-TIMEOUT = 30
+TIMEOUT = 15        # seconds per run (slowest correct run seen: 2.5s)
+VG_TIMEOUT = 120    # seconds per valgrind run
+MAX_TIMEOUTS = 2    # a group stops after this many runs timed out
+NOT_RUN = object()  # ctx.run() result when the group was stopped
+WRAP_OK = sys.platform != "darwin"
+NO_WRAP_WHY = "needs GNU ld --wrap, not available on macOS"
 
 GROUPS = [("files", "required files and prototype"),
           ("norm", "norminette"),
@@ -156,6 +163,9 @@ class Ctx:
         self.bins = {}
         self.errors = {}
         self.counter = itertools.count(1)   # thread-safe
+        self.timeouts = 0       # runs timed out in the current group
+        self.lock = threading.Lock()
+        self.wrap_noted = False
         self.fx = make_fixtures()
         self.fxdir = ws.tmp("fixtures")
         os.makedirs(self.fxdir, exist_ok=True)
@@ -174,7 +184,8 @@ class Ctx:
         srcs = [self.ws.path(f) for f in files if f.endswith(".c")]
         out = self.ws.tmp(f"runner_{bs}_{'b' if bonus else 'm'}"
                           f"{'_asan' if asan else ''}")
-        flags = ["-g", "-Wl,--wrap=read,--wrap=malloc,--wrap=free"]
+        flags = ["-g", "-Wl,--wrap=read,--wrap=malloc,--wrap=free"
+                 if WRAP_OK else "-DNEXT42_NO_WRAP"]
         if asan:
             flags += ["-fsanitize=address", "-fno-omit-frame-pointer"]
         if bs is not None:
@@ -196,21 +207,34 @@ class Ctx:
 
     def run(self, bs, mode, *margs, stdin=b"", bonus=False, vg=False,
             asan=False):
-        """-> (Run, items, info, leaks) ; Run is None if it did not build."""
+        """-> (Run, items, info, leaks) ; Run is None if it did not build,
+        NOT_RUN if the group already had MAX_TIMEOUTS timeouts."""
         b = self.binary(bs, bonus, asan)
         if not b:
             return None, [], {}, None
+        if self.timeouts >= MAX_TIMEOUTS:
+            return NOT_RUN, [], {}, None
         out = self.ws.tmp(f"out_{next(self.counter)}")
         cmd = [b, mode, out, *map(str, margs)]
         leaks = None
         if vg:
             res, leaks = core.valgrind(cmd, cwd=self.ws.root, stdin=stdin,
-                                       timeout=300)
+                                       timeout=VG_TIMEOUT)
         else:
             res = core.run(cmd, cwd=self.ws.root, stdin=stdin,
                            timeout=TIMEOUT, env=RUN_ENV)
+        if res is not None and res.timed_out:
+            with self.lock:
+                self.timeouts += 1
         items, info = parse_out(out)
         return res, items, info, leaks
+
+    def note_no_wrap(self):
+        """macOS: say once that the --wrap checks are skipped."""
+        if not WRAP_OK and not self.wrap_noted:
+            self.wrap_noted = True
+            self.rep.skip("per-call leak tracking (malloc wrapper)",
+                          NO_WRAP_WHY)
 
 
 # --------------------------------------------------------------------------
@@ -259,7 +283,8 @@ def run_problem(res, bs):
     if res is None:
         return None
     if res.timed_out:
-        return f"timeout after {TIMEOUT}s (infinite loop or blocking read?)"
+        return (f"timeout after {res.elapsed:.0f}s (infinite loop or "
+                "blocking read?)")
     if res.crashed:
         hint = ""
         if bs and bs >= 1000000:
@@ -275,12 +300,27 @@ def run_problem(res, bs):
 
 
 class Shown:
-    """Limits the number of detailed KO per section."""
+    """Limits the number of detailed KO per section, and stops the section
+    after MAX_TIMEOUTS timeouts (a looping get_next_line would otherwise
+    cost TIMEOUT seconds per test)."""
 
-    def __init__(self, rep):
-        self.rep = rep
+    def __init__(self, ctx):
+        self.rep = ctx.rep
         self.n = 0
         self.hidden = 0
+        self.hung = []
+        self.not_run = 0
+        ctx.timeouts = 0
+        ctx.note_no_wrap()
+
+    def skipped(self, label, res):
+        """True if the section was stopped before this test ran."""
+        if res is NOT_RUN:
+            self.not_run += 1
+            return True
+        if res is not None and res.timed_out:
+            self.hung.append(label)
+        return False
 
     def ko(self, name, detail):
         if self.n >= MAX_KO and not self.rep.verbose:
@@ -295,7 +335,16 @@ class Shown:
                 self.rep.current[2] += self.hidden
             print(core.red(f"  ... {self.hidden} more failing case(s) in "
                            "this group (use --verbose to see all)"))
-        self.n = self.hidden = 0
+        if self.not_run:
+            more = len(self.hung) - 8
+            self.rep.check(
+                f"group stopped after {len(self.hung)} timeouts: "
+                f"{self.not_run} more test(s) not run", False,
+                detail="tests that hung:\n"
+                + "\n".join("  " + h for h in self.hung[:8])
+                + (f"\n  ... and {more} more" if more > 0 else ""))
+        self.n = self.hidden = self.not_run = 0
+        self.hung = []
 
 
 def check_build(ctx, bs, bonus=False, asan=False):
@@ -351,6 +400,8 @@ def file_case(ctx, shown, bs, name, bonus=False, result=None):
     exp = split_lines(data)
     res, items, info, _ = result or file_run(ctx, bs, name, bonus)
     label = f"{bs_name(bs)}  {name}  ({describe(data)})"
+    if shown.skipped(label, res):
+        return
     prob = run_problem(res, bs)
     probs = compare_lines(exp, items)
     leak = leak_problem(info)
@@ -394,8 +445,19 @@ def compile_objects(ws, files, tag):
     return objs, errors
 
 
+# nm kinds of variables: bss, common, data, small data, read-only data
+# (const), small bss, weak object. Upper case = global, lower case = static.
+DATA_KINDS = set("BCDGRSV")
+
+
 def nm_data_symbols(objs):
-    """-> (globals, file statics, function statics) from nm."""
+    """-> (globals, file statics, function statics) from nm.
+
+    "Global variables are forbidden": that is every variable at file scope,
+    static or not, const or not. A static variable inside a function is
+    allowed (get_next_line needs one); gcc and clang name it with a dot
+    (buf.0, get_next_line.buf), which no file-scope C name can have.
+    """
     glob, fstat, local = [], [], []
     for o in objs:
         res = core.run(["nm", o], timeout=30)
@@ -404,10 +466,14 @@ def nm_data_symbols(objs):
             if len(parts) != 3:
                 continue
             kind, name = parts[1], parts[2]
-            if kind in "BCDGS" and kind.isupper():
+            if kind.upper() not in DATA_KINDS:
+                continue
+            if "." in name:
+                local.append(name)
+            elif kind.isupper():
                 glob.append(name)
-            elif kind in ("b", "d", "s", "g"):
-                (local if "." in name else fstat).append(name.split(".")[0])
+            else:
+                fstat.append(name)
     return glob, fstat, local
 
 
@@ -429,12 +495,16 @@ def group_functions(rep, ws):
         else:
             bad = [s for s in syms if s not in ALLOWED and s not in NOT_CALLS
                    and s not in core.COMPILER_ALIASES]
+            bad += core.written_aliases(
+                syms, ALLOWED, ws.dir,
+                stems={f[:-2] for f in present if f.endswith(".c")})
             rep.check(f"{tag}: external functions only read, malloc, free",
                       not bad, detail=("forbidden: " + ", ".join(bad))
                       if bad else None)
         glob, fstat, _ = nm_data_symbols(objs)
         rep.check(f"{tag}: no global variable", not glob and not fstat,
-                  detail=("global: " + ", ".join(glob + fstat))
+                  detail=("global: " + ", ".join(
+                      glob + [f"{x} (static at file scope)" for x in fstat]))
                   if glob or fstat else None)
         libft = []
         for f in present:
@@ -471,7 +541,7 @@ def group_basic(ctx):
     rep.section("basic reading (BUFFER_SIZE=42)")
     if not check_build(ctx, 42):
         return
-    shown = Shown(rep)
+    shown = Shown(ctx)
     for name in BASIC + ["2000_random_lines"]:
         file_case(ctx, shown, 42, name)
     shown.close()
@@ -480,7 +550,7 @@ def group_basic(ctx):
 def group_sizes(ctx, sizes):
     rep = ctx.rep
     rep.section("BUFFER_SIZE values")
-    shown = Shown(rep)
+    shown = Shown(ctx)
     ctx.prebuild([(bs, False, False) for bs in sizes])
     jobs = []
     for bs in sizes:
@@ -505,7 +575,7 @@ def group_sizes(ctx, sizes):
 def group_stdin(ctx, sizes):
     rep = ctx.rep
     rep.section("standard input and pipes")
-    shown = Shown(rep)
+    shown = Shown(ctx)
     for bs in sizes:
         if not check_build(ctx, bs):
             continue
@@ -525,6 +595,8 @@ def group_stdin(ctx, sizes):
                     res, items, info, _ = ctx.run(bs, mode, ctx.fpath(name),
                                                   len(exp) + 5)
                 label = f"{bs_name(bs)}  {how}  {name} ({describe(data)})"
+                if shown.skipped(label, res):
+                    continue
                 prob = run_problem(res, bs)
                 probs = compare_lines(exp, items)
                 if not prob and leak_problem(info):
@@ -537,18 +609,30 @@ def group_stdin(ctx, sizes):
     shown.close()
 
 
-def check_readerr(ctx, shown, bs, k, vg=False):
-    """read k lines, make read() fail, then read a new fd from the start."""
-    name = "2000_random_lines"
+def check_readerr(ctx, shown, bs, k, after=0, name="2000_random_lines"):
+    """read k lines, read() gives `after` more bytes then fails, then a new
+    fd is read from the start.
+
+    after > 0 (with a long first line): the error comes while get_next_line
+    holds part of a line without its newline. The subject: NULL when "an
+    error occurred", so that partial line must not be returned.
+    """
     exp = split_lines(ctx.fx[name])
-    res, items, info, leaks = ctx.run(bs, "readerr", ctx.fpath(name), k,
-                                      len(exp) + 5, vg=vg)
-    label = (f"{bs_name(bs)}  {k} line(s) read, then read() returns -1: "
-             "NULL, then another fd is read from its first line")
+    margs = [ctx.fpath(name), k, len(exp) + 5] + ([after] if after else [])
+    res, items, info, _ = ctx.run(bs, "readerr", *margs)
+    if after:
+        label = (f"{bs_name(bs)}  {name}: read() gives {after} byte(s) of "
+                 "the first line, then returns -1: NULL (not the partial "
+                 "line), then another fd is read from its first line")
+    else:
+        label = (f"{bs_name(bs)}  {k} line(s) read, then read() returns -1: "
+                 "NULL, then another fd is read from its first line")
+    if shown.skipped(label, res):
+        return
     prob = run_problem(res, bs)
     if prob:
         shown.ko(label, prob)
-        return res, leaks
+        return
     probs = []
     for i in range(k):
         if i >= len(items) or items[i] != exp[i]:
@@ -577,63 +661,90 @@ def check_readerr(ctx, shown, bs, k, vg=False):
         shown.ko(label, "\n".join(probs[:4]))
     else:
         ctx.rep.check(label, True)
-    return res, leaks
+
+
+def check_badfd(ctx, shown, bs):
+    res, items, _, _ = ctx.run(bs, "badfd", ctx.fpath("three_lines"))
+    want = [None] * 5 + [b"line 1\n"]
+    names = ["fd -1", "fd 42 (closed)", "fd just closed",
+             "fd opened write-only", "fd of a directory",
+             "then a valid fd, first line"]
+    label = f"{bs_name(bs)}  invalid fd -> NULL (" + ", ".join(names) + ")"
+    if shown.skipped(label, res):
+        return
+    prob = run_problem(res, bs)
+    if prob:
+        shown.ko(label, f"{prob} after {len(items)} call(s)"
+                 + (f" ({names[len(items)]})" if len(items) < 6 else ""))
+        return
+    bad = [f"{names[i]}: expected {core.crepr(w)}, got "
+           f"{core.crepr(items[i]) if i < len(items) else 'nothing'}"
+           for i, w in enumerate(want)
+           if i >= len(items) or items[i] != w]
+    if bad:
+        shown.ko(label, "\n".join(bad))
+    else:
+        ctx.rep.check(label, True)
 
 
 def group_edge(ctx):
     rep = ctx.rep
     rep.section("edge cases")
-    shown = Shown(rep)
+    shown = Shown(ctx)
     for bs in (1, 42):
         if not check_build(ctx, bs):
             continue
         for name in ("empty", "one_newline", "only_newlines"):
             file_case(ctx, shown, bs, name)
-        res, items, _, _ = ctx.run(bs, "badfd", ctx.fpath("three_lines"))
-        prob = run_problem(res, bs)
-        want = [None] * 5 + [b"line 1\n"]
-        names = ["fd -1", "fd 42 (closed)", "fd just closed",
-                 "fd opened write-only", "fd of a directory",
-                 "then a valid fd, first line"]
-        label = f"{bs_name(bs)}  invalid fd -> NULL (" + ", ".join(names) + ")"
-        if prob:
-            shown.ko(label, f"{prob} after {len(items)} call(s)"
-                     + (f" ({names[len(items)]})" if len(items) < 6 else ""))
-        else:
-            bad = [f"{names[i]}: expected {core.crepr(w)}, got "
-                   f"{core.crepr(items[i]) if i < len(items) else 'nothing'}"
-                   for i, w in enumerate(want)
-                   if i >= len(items) or items[i] != w]
-            if bad:
-                shown.ko(label, "\n".join(bad))
-            else:
-                rep.check(label, True)
+        check_badfd(ctx, shown, bs)
+        if not WRAP_OK:
+            continue
         for k in (0, 1, 2):
             check_readerr(ctx, shown, bs, k)
+        # read() fails while the stash holds a line without its newline
+        check_readerr(ctx, shown, bs, 0, after=2 * bs, name="long_line_2000")
+    if not WRAP_OK:
+        rep.skip("read() errors and bytes read by the first call",
+                 NO_WRAP_WHY)
+        shown.close()
+        return
     for bs in (1, 5, 42):
         if not check_build(ctx, bs):
             continue
-        name = "2000_random_lines"
-        data = ctx.fx[name]
-        first = split_lines(data)[0]
-        res, items, info, _ = ctx.run(bs, "minread", ctx.fpath(name))
-        label = (f"{bs_name(bs)}  first call reads at most the first line + "
-                 f"one buffer ({len(first)} + {bs} bytes of {len(data)})")
-        prob = run_problem(res, bs)
-        got = int(info.get("bytes", "-1"))
-        if prob:
-            shown.ko(label, prob)
-        elif got > len(first) + bs:
-            shown.ko(label, f"read {got} bytes ({info.get('reads')} read() "
-                     "calls) before returning the first line\nsubject: \"Try "
-                     "to read as little as possible each time get_next_line()"
-                     " is called. [...] Don't read the whole file\"")
-        elif not items or items[0] != first:
-            shown.ko(label, f"first line: expected {core.crepr(first)}, got "
-                     f"{core.crepr(items[0]) if items else 'nothing'}")
-        else:
-            rep.check(label, True)
+        check_minread(ctx, shown, bs)
     shown.close()
+
+
+def check_minread(ctx, shown, bs):
+    """Subject: "Try to read as little as possible each time get_next_line()
+    is called. [...] Don't read the whole file". Reading the whole file
+    before the first line is a KO; more than one extra buffer is a WARN."""
+    name = "2000_random_lines"
+    data = ctx.fx[name]
+    first = split_lines(data)[0]
+    res, items, info, _ = ctx.run(bs, "minread", ctx.fpath(name))
+    label = (f"{bs_name(bs)}  first call reads at most the first line + "
+             f"one buffer ({len(first)} + {bs} bytes of {len(data)})")
+    if shown.skipped(label, res):
+        return
+    prob = run_problem(res, bs)
+    got = int(info.get("bytes", "-1"))
+    quote = ("subject: \"Try to read as little as possible each time "
+             "get_next_line() is called. [...] Don't read the whole file\"")
+    read = (f"read {got} bytes ({info.get('reads')} read() calls) before "
+            "returning the first line")
+    if prob:
+        shown.ko(label, prob)
+    elif not items or items[0] != first:
+        shown.ko(label, f"first line: expected {core.crepr(first)}, got "
+                 f"{core.crepr(items[0]) if items else 'nothing'}")
+    elif got >= len(data):
+        shown.ko(label, f"{read}: the whole file\n{quote}")
+    elif got > len(first) + bs:
+        ctx.rep.warn(label, f"{read}, more than needed (not the whole "
+                     f"file)\n{quote}")
+    else:
+        ctx.rep.check(label, True)
 
 
 def mem_scenarios(ctx, bs):
@@ -657,11 +768,30 @@ def mem_scenarios(ctx, bs):
     runs.append(("invalid fds then a valid one",
                  ("badfd", ctx.fpath("three_lines")), b""))
     runs.append(("stdin pipe", ("fd0", 10), ctx.fx["three_lines"]))
+    if not WRAP_OK:
+        return runs
     n = len(split_lines(ctx.fx["text"])) + 5
     for k in (0, 1):
         runs.append((f"read() fails after {k} line(s), then a new fd",
                      ("readerr", ctx.fpath("text"), k, n), b""))
+    if bs < 1000:
+        n = len(split_lines(ctx.fx["long_line_2000"])) + 5
+        runs.append(("read() fails in the middle of a line, then a new fd",
+                     ("readerr", ctx.fpath("long_line_2000"), 0, n, 2 * bs),
+                     b""))
     return runs
+
+
+def still_reachable(leaks):
+    """(bytes, blocks) still allocated when the runner ends: the runner
+    frees everything it allocates, so this is memory of get_next_line
+    (a stash never freed). The per-call tracking counts it as a leak too."""
+    m = re.search(r"still reachable: ([\d,]+) bytes in ([\d,]+) blocks",
+                  leaks.log)
+    if not m:
+        return 0, 0
+    return (int(m.group(1).replace(",", "")),
+            int(m.group(2).replace(",", "")))
 
 
 def group_leaks(ctx):
@@ -677,7 +807,7 @@ def group_leaks(ctx):
     targets = [(False, None)]
     if all(os.path.isfile(ctx.ws.path(f)) for f in BONUS):
         targets.append((True, None))
-    shown = Shown(rep)
+    shown = Shown(ctx)
     # build first, then run every case in parallel
     ctx.prebuild([(bs, bonus, not use_vg) for bonus, _ in targets
                   for bs in MEM_SIZES])
@@ -700,29 +830,52 @@ def group_leaks(ctx):
 
     def one(job):
         _, bs, bonus, margs, stdin = job
-        if use_vg:
-            return ctx.run(bs, *margs, stdin=stdin, bonus=bonus, vg=True)
-        return ctx.run(bs, *margs, stdin=stdin, bonus=bonus, asan=True)
+        if not use_vg:
+            return ctx.run(bs, *margs, stdin=stdin, bonus=bonus, asan=True)
+        # same binary without valgrind first: a hang then costs TIMEOUT,
+        # not VG_TIMEOUT
+        first = ctx.run(bs, *margs, stdin=stdin, bonus=bonus)
+        if first[0] is NOT_RUN or (first[0] is not None
+                                   and first[0].timed_out):
+            return first
+        return ctx.run(bs, *margs, stdin=stdin, bonus=bonus, vg=True)
 
     results = parallel(one, jobs)
     # report in the same order as before
-    for (label, bs, _, _, _), (res, _, _, leaks) in zip(jobs, results):
+    for (label, bs, _, margs, _), (res, _, info, leaks) in zip(jobs,
+                                                               results):
+        if not use_vg and not WRAP_OK:
+            # ASan without leak detection and no malloc tracking
+            label = label.replace("no leak, ", "")
+        if shown.skipped(label, res):
+            continue
+        # badfd stops after one line of the valid fd: the rest of the file
+        # may stay in the stash. Memory still held counts only when every
+        # fd was read to the end (the per-call tracking rule).
+        to_eof = margs[0] != "badfd"
         if use_vg:
+            if res is not None and (res.timed_out or res.crashed):
+                shown.ko(label, res.status())
+                continue
             if res is None or leaks is None:
                 continue
-            if res.timed_out or res.crashed:
-                shown.ko(label, res.status())
-            elif not leaks.clean:
+            nbytes, nblocks = still_reachable(leaks) if to_eof else (0, 0)
+            if not leaks.clean:
                 shown.ko(label, leaks.describe() + "\n"
                          + leaks.first_error())
+            elif nbytes:
+                shown.ko(label, f"{nbytes} byte(s) in {nblocks} block(s) "
+                         "still reachable at exit: memory of get_next_line "
+                         "never freed (a static stash kept after the end of "
+                         "file or after an error?)")
             else:
                 rep.check(label, True)
         else:
-            prob = run_problem(res, bs)
+            prob = run_problem(res, bs) or (to_eof and leak_problem(info))
             if prob:
-                shown.ko(label.replace("no leak, ", ""), prob)
+                shown.ko(label, prob)
             else:
-                rep.check(label.replace("no leak, ", ""), True)
+                rep.check(label, True)
     shown.close()
 
 
@@ -778,7 +931,7 @@ def group_bonus(ctx):
         rep.check("bonus files", False,
                   detail="missing: " + ", ".join(missing))
         return
-    shown = Shown(rep)
+    shown = Shown(ctx)
     sets = [("three_lines", "text", "only_newlines"),
             ("2000_random_lines", "one_char", "empty", "three_lines_no_nl"),
             ("long_line_12000", "lengths_1_to_10001")]
@@ -796,6 +949,8 @@ def group_bonus(ctx):
                          + ", ".join(names)
                          + (" (+ get_next_line(-1) between)" if badcalls
                             else ""))
+                if shown.skipped(label, res):
+                    continue
                 prob = run_problem(res, bs)
                 bad = first_multi_diff(want, items)
                 if not bad and not prob:

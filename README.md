@@ -47,7 +47,7 @@ python3 -m pip install --user norminette flake8 mypy
 Uninstall:
 
 ```sh
-rm -rf ~/.local/share/42next ~/.local/bin/42next
+rm -rf ~/.local/share/42next ~/.local/bin/42next ~/.cache/42next-*
 ```
 
 </details>
@@ -73,9 +73,10 @@ Run it in your project folder, in `ex3/`, or in a parent folder.
 | `42next` | menu for the project around the current folder |
 | `42next <folder>` | menu for that folder |
 | `42next all` | test everything, no menu |
-| `42next quick` | same, without valgrind and long benchmarks |
+| `42next quick` | same, skip the slow checks (valgrind, big benchmarks, mypy) |
 | `42next ft_split ex3 p` | test only these parts |
-| `42next ft_split.c` | test the part of that file |
+| `42next ft_split.c ft_strjoin.c` | test the parts of these files (or `ex3/main.py`) |
+| `42next ft_split --verbose` | options go to the tester: `--verbose`, `--keep`, `--quick`, `--no-color` |
 | `42next list` | list what can be tested |
 | `42next watch ft_split` | test again each time you save a file |
 | `42next commit` | test the last git commit only: what is graded |

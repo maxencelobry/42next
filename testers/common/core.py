@@ -299,12 +299,21 @@ class Run:
 
 
 def _no_core_dump():
-    """A crashing student program must not leave core files behind."""
+    """A crashing student program must not leave core files behind.
+
+    Set once in the tester process: every child inherits the limit. This
+    replaces a preexec_fn, which is not safe when processes are started
+    from several threads (the child can deadlock before exec).
+    """
     try:
         import resource
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     except (ImportError, ValueError, OSError):
         pass
+
+
+if os.name == "posix":
+    _no_core_dump()
 
 
 def run(cmd, cwd=None, stdin=b"", timeout=10, env=None):
@@ -315,10 +324,9 @@ def run(cmd, cwd=None, stdin=b"", timeout=10, env=None):
     if env:
         full_env.update(env)
     start = time.monotonic()
-    pre = _no_core_dump if os.name == "posix" else None
     try:
         proc = subprocess.run(cmd, cwd=cwd, input=stdin, capture_output=True,
-                              timeout=timeout, env=full_env, preexec_fn=pre)
+                              timeout=timeout, env=full_env)
         return Run(proc.returncode, proc.stdout, proc.stderr, False,
                    time.monotonic() - start)
     except subprocess.TimeoutExpired as exc:
@@ -414,6 +422,46 @@ IGNORE_COPY = shutil.ignore_patterns(".git", "__pycache__", ".mypy_cache",
                                      "node_modules", ".venv", "venv")
 
 
+def _inside(path, top):
+    return path == top or path.startswith(top.rstrip(os.sep) + os.sep)
+
+
+def _detach_links(project, copy):
+    """No symlink of the copy may lead back into the real project.
+
+    A link to a place inside the project becomes a relative link to the
+    same place inside the copy. A link to something outside the project is
+    replaced by a copy of what it points to (a dangling one is dropped):
+    `make clean` in the copy must never delete files through a link.
+    """
+    real_project = os.path.realpath(project)
+    for root, dirs, files in os.walk(copy):
+        for name in dirs + files:
+            link = os.path.join(root, name)
+            if not os.path.islink(link):
+                continue
+            orig = os.path.join(project, os.path.relpath(link, copy))
+            target = os.path.realpath(orig)
+            os.remove(link)
+            if _inside(target, real_project):
+                dest = os.path.join(copy, os.path.relpath(target,
+                                                          real_project))
+                os.symlink(os.path.relpath(dest, root), link)
+            elif os.path.isdir(target):
+                shutil.copytree(target, link, ignore=IGNORE_COPY)
+            elif os.path.isfile(target):
+                shutil.copy2(target, link)
+
+
+def _copy_error(exc):
+    if isinstance(exc, shutil.Error) and exc.args \
+            and isinstance(exc.args[0], list):
+        whys = [str(e[-1]) for e in exc.args[0][:3]]
+        more = len(exc.args[0]) - len(whys)
+        return "; ".join(whys) + (f" (+{more} more)" if more > 0 else "")
+    return str(exc)
+
+
 class Workspace:
     """A throwaway copy of the project. Use as a context manager."""
 
@@ -422,7 +470,15 @@ class Workspace:
         self.keep = keep
         self.root = tempfile.mkdtemp(prefix=prefix)
         self.dir = os.path.join(self.root, "project")
-        shutil.copytree(project, self.dir, symlinks=True, ignore=IGNORE_COPY)
+        try:
+            shutil.copytree(project, self.dir, symlinks=True,
+                            ignore=IGNORE_COPY)
+            _detach_links(project, self.dir)
+        except (OSError, shutil.Error) as exc:
+            shutil.rmtree(self.root, ignore_errors=True)
+            print(red(f"cannot copy the project to a temporary folder: "
+                      f"{_copy_error(exc)}"))
+            sys.exit(2)
 
     def path(self, *parts):
         return os.path.join(self.dir, *parts)
@@ -596,7 +652,13 @@ def makefile_text(directory):
     return None
 
 
+def _same_var(text):
+    """${X} and $(X) are the same thing for make: use $(X) everywhere."""
+    return re.sub(r"\$\{([^{}()]*)\}", r"$(\1)", text)
+
+
 def makefile_targets(text):
+    """Targets as written, with ${X} spelled $(X)."""
     targets = set()
     for line in text.splitlines():
         if line.startswith("\t") or line.lstrip().startswith("#"):
@@ -604,7 +666,7 @@ def makefile_targets(text):
         m = re.match(r"^([^:=#\t][^:=#]*?)\s*::?(?!=)", line)
         if m:
             for t in m.group(1).split():
-                targets.add(t)
+                targets.add(_same_var(t))
     return targets
 
 
@@ -667,7 +729,8 @@ def check_makefile(rep, ws_dir, name, rules=("$(NAME)", "all", "clean",
     rep.check("Makefile present", True)
 
     targets = makefile_targets(text)
-    missing = [r for r in list(rules) + list(extra_rules) if r not in targets]
+    missing = [r for r in list(rules) + list(extra_rules)
+               if _same_var(r) not in targets]
     rep.check(f"rules: {', '.join(list(rules) + list(extra_rules))}",
               not missing,
               detail=f"missing: {', '.join(missing)}" if missing else None)
@@ -747,9 +810,45 @@ IGNORED_SYMBOLS = {"_GLOBAL_OFFSET_TABLE_", "__stack_chk_fail", "_DYNAMIC",
                    "_IO_stdin_used", "__libc_csu_init", "__libc_csu_fini",
                    "dyld_stub_binder"}
 
-# compilers may emit these for plain C code
+# compilers may emit these for plain C code (an optimizer turns a byte loop
+# into a memset call, a big struct copy into memcpy). source_calls() tells
+# such a call from one written in the source.
 COMPILER_ALIASES = {"memcpy", "memset", "memmove", "__memcpy_chk",
                     "__memset_chk", "__memmove_chk"}
+
+
+def chk_name(sym):
+    """__memcpy_chk -> memcpy (what _FORTIFY_SOURCE turns a call into)."""
+    m = re.fullmatch(r"__(\w+)_chk", sym)
+    return m.group(1) if m else sym
+
+
+def source_calls(src, includes=(), workdir=None):
+    """The functions the C file src calls in its source.
+
+    It is compiled again at -O0 with -fno-builtin: no optimizer, no builtin
+    expansion, so the only calls left are the ones written in the source
+    (an optimizer may add memset, memcpy or strlen calls for plain loops).
+    Returns the set of undefined symbols (C names, __x_chk read as x), or
+    None when the file cannot be compiled on its own.
+    """
+    if not have("nm") or not have("cc"):
+        return None
+    fd, obj = tempfile.mkstemp(prefix="42next-src-", suffix=".o",
+                               dir=workdir)
+    os.close(fd)
+    try:
+        cmd = ["cc", "-O0", "-fno-builtin", "-w", "-c", src, "-o", obj]
+        for inc in includes:
+            cmd += ["-I", inc]
+        if run(cmd, timeout=60).rc != 0:
+            return None
+        res = run(["nm", "-u", obj], timeout=30)
+        return {chk_name(_c_name(ln.split()[-1]))
+                for ln in res.out.decode("utf-8", "replace").splitlines()
+                if ln.split()}
+    finally:
+        os.remove(obj)
 
 
 def _c_name(sym):
@@ -780,13 +879,55 @@ def external_symbols(files):
                   if s not in IGNORED_SYMBOLS and s not in defined)
 
 
-def check_functions(rep, files, allowed, label="external functions"):
-    """KO for any external function outside `allowed` (a set of names)."""
+def c_sources(top):
+    """Every .c file under top, and every folder holding a .h file."""
+    srcs, incs = [], set()
+    for root, dirs, files in os.walk(top):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        for f in sorted(files):
+            if f.endswith(".c"):
+                srcs.append(os.path.join(root, f))
+            elif f.endswith(".h"):
+                incs.add(root)
+    return srcs, sorted(incs)
+
+
+def written_aliases(syms, allowed, top, stems=None, workdir=None):
+    """The COMPILER_ALIASES among syms that the sources under top really
+    call (not added by the optimizer). Those are forbidden like any other
+    function. Only the .c files that were built count (`stems`, or the .o
+    files found under top), so a test main.c lying around is ignored.
+    Files that do not compile on their own are skipped."""
+    alias = {chk_name(s) for s in syms
+             if s in COMPILER_ALIASES and chk_name(s) not in allowed}
+    if not alias or not top:
+        return []
+    srcs, incs = c_sources(top)
+    if stems is None:
+        stems = {f[:-2] for _, _, files in os.walk(top)
+                 for f in files if f.endswith(".o")}
+    built = [s for s in srcs if os.path.basename(s)[:-2] in stems]
+    srcs = built or srcs
+    found = set()
+    for src in srcs:
+        calls = source_calls(src, incs, workdir=workdir)
+        if calls:
+            found |= calls & alias
+    return sorted(found)
+
+
+def check_functions(rep, files, allowed, label="external functions",
+                    sources=None):
+    """KO for any external function outside `allowed` (a set of names).
+
+    memcpy / memset / memmove may be added by the compiler: with `sources`
+    (the project folder) they are KO only when the source calls them."""
     syms = external_symbols(files)
     if syms is None:
         rep.skip(label, "nm not installed")
         return
     bad = [s for s in syms if s not in allowed and s not in COMPILER_ALIASES]
+    bad += written_aliases(syms, allowed, sources)
     used = [s for s in syms if s not in bad]
     rep.check(f"{label}: only {', '.join(sorted(allowed)) or 'none'}",
               not bad,

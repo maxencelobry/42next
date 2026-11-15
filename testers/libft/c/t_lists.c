@@ -140,7 +140,9 @@ void	t_lstadd_front(void)
 	{
 		l = NULL;
 		a = build(1);
+		nx_track(1);
 		ft_lstadd_front(&l, a);
+		nx_track(0);
 		if (l != a)
 			nx_expect("lst == new", nx_f("lst == %p (new = %p)", (void *)l,
 					(void *)a));
@@ -157,7 +159,9 @@ void	t_lstadd_front(void)
 		g_vals[100] = 99;
 		a->content = &g_vals[100];
 		a->next = NULL;
+		nx_track(1);
 		ft_lstadd_front(&l, a);
+		nx_track(0);
 		if (l != a || a->next != b)
 			nx_expect("[99] -> [0] -> [10] -> [20] -> NULL",
 				list_repr(l, 6));
@@ -176,7 +180,9 @@ void	t_lstadd_front(void)
 			g_vals[200 + i] = i;
 			n[i]->content = &g_vals[200 + i];
 			n[i]->next = NULL;
+			nx_track(1);
 			ft_lstadd_front(&l, n[i]);
+			nx_track(0);
 		}
 		if (l != n[2] || n[2]->next != n[1] || n[1]->next != n[0]
 			|| n[0]->next)
@@ -195,7 +201,9 @@ static void	lstsize_case(int n)
 			n ? "" : " (NULL)"))
 		return ;
 	l = build(n);
+	nx_track(1);
 	r = ft_lstsize(l);
+	nx_track(0);
 	if (r != (unsigned int)n)
 		nx_expect(nx_f("%d", n), nx_f("%u", r));
 	free_list(l);
@@ -224,7 +232,9 @@ static void	lstlast_case(int n)
 	exp = l;
 	while (exp && exp->next)
 		exp = exp->next;
+	nx_track(1);
 	r = ft_lstlast(l);
+	nx_track(0);
 	if (r != exp)
 		nx_expect(exp ? nx_f("node [%d]", *(int *)exp->content) : "NULL",
 			r ? nx_f("%p", (void *)r) : "NULL");
@@ -251,7 +261,9 @@ void	t_lstadd_back(void)
 	{
 		l = NULL;
 		a = build(1);
+		nx_track(1);
 		ft_lstadd_back(&l, a);
+		nx_track(0);
 		if (l != a)
 			nx_expect("lst == new", nx_f("lst == %p (new = %p)", (void *)l,
 					(void *)a));
@@ -266,7 +278,9 @@ void	t_lstadd_back(void)
 		g_vals[100] = 99;
 		a->content = &g_vals[100];
 		a->next = NULL;
+		nx_track(1);
 		ft_lstadd_back(&l, a);
+		nx_track(0);
 		if (last->next != a || a->next != NULL)
 			nx_expect("[0] -> [10] -> [20] -> [99] -> NULL",
 				list_repr(l, 6));
@@ -285,7 +299,9 @@ void	t_lstadd_back(void)
 			g_vals[200 + i] = i;
 			n[i]->content = &g_vals[200 + i];
 			n[i]->next = NULL;
+			nx_track(1);
 			ft_lstadd_back(&l, n[i]);
+			nx_track(0);
 		}
 		if (l != n[0] || n[0]->next != n[1] || n[1]->next != n[2]
 			|| n[2]->next)
@@ -297,7 +313,9 @@ void	t_lstadd_back(void)
 	{
 		l = build(1);
 		a = build(2);
+		nx_track(1);
 		ft_lstadd_back(&l, a);
+		nx_track(0);
 		if (l->next != a || a->next == NULL)
 			nx_expect("[0] -> [0] -> [10] -> NULL (chain kept)",
 				list_repr(l, 6));
@@ -316,7 +334,9 @@ void	t_lstdelone(void)
 	l = build(3);
 	second = l->next;
 	g_ndel = 0;
+	nx_track(1);
 	ft_lstdelone(l, del_record);
+	nx_track(0);
 	if (g_ndel != 1)
 		nx_ko("del called %d time(s), expected exactly once", g_ndel);
 	else if (g_deleted[0] != &g_vals[0])
@@ -353,7 +373,9 @@ static void	lstclear_case(int n)
 	for (i = 0, p = l; p && i < 20; p = p->next)
 		nodes[i++] = p;
 	g_ndel = 0;
+	nx_track(1);
 	ft_lstclear(&l, del_record);
+	nx_track(0);
 	if (l != NULL)
 	{
 		nx_expect("*lst == NULL after ft_lstclear",
@@ -400,7 +422,9 @@ static void	lstiter_case(int n)
 		return ;
 	l = build(n);
 	g_niter = 0;
+	nx_track(1);
 	ft_lstiter(l, iter_record);
+	nx_track(0);
 	if (g_niter != n)
 		nx_ko("f called %d time(s), expected %d", g_niter, n);
 	for (i = 0; i < n && i < g_niter; i++)

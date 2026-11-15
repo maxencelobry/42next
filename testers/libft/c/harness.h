@@ -5,7 +5,8 @@
  * per case on stdout, which run.py turns into the report:
  *
  *   @F <function>                    start of a function
- *   @C <OK|KO|WARN|CRASH|TIMEOUT> <call>
+ *   @C <OK|KO|WARN|CRASH|TIMEOUT|SKIP> <call>
+ *      (SKIP: not run, the function already timed out twice)
  *   @E <expected>   @G <got>   @D <detail line>
  *
  * Strings / byte buffers are sent as {{hex}} tokens ({{NULL}} for NULL);

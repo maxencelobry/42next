@@ -14,17 +14,21 @@ int		ft_printf(const char *, ...);
 typedef int	(*t_pf)(const char *, ...);
 
 #define LONG_LEN @LONG_LEN@
-#define CASE_TIMEOUT 5
+#define CASE_TIMEOUT 3
+/* stop the run after this many timeouts (run.py runs one group at a time) */
+#define MAX_TIMEOUTS 2
 
+static int		g_nblk;
+static int		g_on;
+#define MAXBLK 65536
+static size_t	g_blksz[MAXBLK];
+
+#ifndef NEXT42_NO_WRAP
 /* ---- malloc tracking (only during the ft_printf call, in the child) ---- */
 void		*__real_malloc(size_t n);
 void		__real_free(void *p);
-#define MAXBLK 65536
 
 static void		*g_blk[MAXBLK];
-static size_t	g_blksz[MAXBLK];
-static int		g_nblk;
-static int		g_on;
 
 void	*__wrap_malloc(size_t n)
 {
@@ -57,6 +61,8 @@ void	__wrap_free(void *p)
 	}
 	__real_free(p);
 }
+#endif
+/* NEXT42_NO_WRAP (macOS, no --wrap in ld64): no tracking, g_nblk stays 0 */
 
 static int	g_var = 42;
 static void	*g_heap;
@@ -78,6 +84,7 @@ static int	run_case(int id, int ref)
 	pf = ref ? printf : ft_printf;
 	(void)pf;
 	(void)wr;
+	(void)g_on;
 	switch (id)
 	{
 @CASES@
@@ -123,6 +130,7 @@ static void	reset(int fd)
 int	main(int ac, char **av)
 {
 	int		i;
+	int		timeouts = 0;
 
 	for (i = 0; i < LONG_LEN; i++)
 		g_long[i] = 'a' + i % 26;
@@ -218,6 +226,9 @@ int	main(int ac, char **av)
 		free(rb);
 		free(ub);
 		free(eb);
+		fflush(out);
+		if (strcmp(status, "timeout") == 0 && ++timeouts >= MAX_TIMEOUTS)
+			break ;
 	}
 	fclose(out);
 	close(rfd);

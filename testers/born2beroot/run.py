@@ -230,11 +230,14 @@ def group_repo(rep, project):
             big.append(f"{f} ({human(os.path.getsize(p))})")
     rep.check("no big file (> 10 MB)", not big,
               detail=", ".join(big) if big else None)
+    # "You only need to submit the expected README.md file, and a
+    # signature.txt file": other files are not forbidden (the VM is, above)
     extra = sorted(f for f in files if f not in ALLOWED)
-    rep.check("only signature.txt and README.md in the repository",
-              not extra, expected="signature.txt README.md",
-              got=", ".join(extra[:12]) + (" ..." if len(extra) > 12 else "")
-              if extra else None)
+    if extra:
+        rep.warn("other files than signature.txt and README.md",
+                 "the subject only asks for these two: "
+                 + ", ".join(extra[:12])
+                 + (" ..." if len(extra) > 12 else ""))
     nested = [f for f in files if os.path.basename(f) in ALLOWED
               and f not in ALLOWED]
     if nested:

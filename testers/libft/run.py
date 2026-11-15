@@ -157,6 +157,25 @@ def source_for(func, names):
     return None
 
 
+def defined_in(func, project, names):
+    """True if a root .c file defines func. The Norm puts the return type
+    at the start of the line, so `type<TAB>func(` at column 0 is the
+    definition, never a call (calls are indented)."""
+    pat = re.compile(r"(?m)^[A-Za-z_][\w \t\*]*\b" + re.escape(func)
+                     + r"\s*\([^;]*$")
+    for n in names:
+        if not n.endswith(".c"):
+            continue
+        try:
+            with open(os.path.join(project, n), encoding="utf-8",
+                      errors="replace") as fh:
+                if pat.search(fh.read()):
+                    return True
+        except OSError:
+            pass
+    return False
+
+
 def make_if_needed(rep, ws_dir, state):
     """Build libft.a in the workspace (once). Returns its path or None."""
     lib = os.path.join(ws_dir, "libft.a")
@@ -245,10 +264,16 @@ def check_files(rep, project, ws_dir):
     names = root_files(project)
     for need in ("Makefile", "libft.h"):
         rep.check(f"{need} at the root", need in names)
-    missing = [f for f in FUNCS if not source_for(f, names)]
-    rep.check(f"{len(FUNCS)} ft_*.c files at the root", not missing,
-              detail=("missing: " + ", ".join(f + ".c" for f in missing))
-              if missing else None)
+    # "Files to Submit: Makefile, libft.h, ft_*.c": every .c is an ft_*.c,
+    # but nothing says one file per function (ft_lst_utils.c is fine)
+    other = [f for f in names if f.endswith(".c") and not f.startswith("ft_")]
+    rep.check("every .c file is named ft_*.c", not other,
+              detail=("not ft_*.c: " + ", ".join(other)) if other else None)
+    missing = [f for f in FUNCS if not source_for(f, names)
+               and not defined_in(f, project, names)]
+    rep.check(f"the {len(FUNCS)} functions are defined in the .c files",
+              not missing,
+              detail=("not found: " + ", ".join(missing)) if missing else None)
 
     # "Place all your files at the root": no source in sub folders
     nested = []

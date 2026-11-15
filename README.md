@@ -97,18 +97,18 @@ Makefile (rules, flags, relink), forbidden functions and the README.
 
 ## Details
 
-| Mark | Meaning |
-| --- | --- |
-| `KO` | the subject requires it and it is broken |
-| `WARN` | up to your evaluator, or not written in the subject |
-| `SKIP` | a tool is missing, or `42next quick` was used |
-
 Every check comes from the subject. A failure shows the exact call, the
-expected output and yours. Your folder is never modified: everything runs in a
-temporary copy.
+expected output and yours.
+
+- `KO`: the subject requires it.
+- `WARN`: up to your evaluator.
+- `SKIP`: a tool is missing, or `42next quick` was used.
+
+Your folder is never modified: everything runs in a temporary copy.
+
+For exams, use [42exam.net](https://42exam.net/).
 
 ## Resources
 
 - [42-cli](https://github.com/brunogo25/42-cli), [francinette](https://github.com/xicodomingues/francinette), [Tripouille](https://github.com/Tripouille)
-- For exams: [42exam.net](https://42exam.net/)
 - Made by mlobry, with [Claude](https://claude.com/claude-code). A ⭐ helps others find it.

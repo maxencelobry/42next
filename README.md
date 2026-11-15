@@ -33,6 +33,17 @@ npm install -g .
 </details>
 
 <details>
+<summary><b>macOS</b></summary>
+
+<br>
+
+Same command as above. The Python testers work as is. The C testers are built
+for Linux (valgrind, GNU ld): for the full C checks, use the school machines
+or a Linux VM.
+
+</details>
+
+<details>
 <summary><b>Optional tools</b></summary>
 
 <br>
@@ -42,6 +53,17 @@ A check that needs a missing tool is skipped and says so.
 ```sh
 sudo apt install build-essential valgrind           # cc, make, valgrind
 python3 -m pip install --user norminette flake8 mypy
+```
+
+</details>
+
+<details>
+<summary><b>Uninstall</b></summary>
+
+<br>
+
+```sh
+rm -rf ~/42next ~/.local/bin/42next
 ```
 
 </details>
@@ -111,4 +133,5 @@ For exams, use [42exam.net](https://42exam.net/).
 ## Resources
 
 - [42-cli](https://github.com/brunogo25/42-cli), [francinette](https://github.com/xicodomingues/francinette), [Tripouille](https://github.com/Tripouille)
+- Wrong test or missing case? [Open an issue](https://github.com/maxencelobry/42next/issues) with the subject version and the output.
 - Made by mlobry, with [Claude](https://claude.com/claude-code). A ⭐ helps others find it.

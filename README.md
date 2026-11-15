@@ -82,25 +82,30 @@ Menu keys: `↑↓` move, `enter` select, `1-9` jump, `space` tick, `q` back, `r
 
 ## Projects
 
-- libft
-- ft_printf
-- get_next_line
-- push_swap
-- Born2beRoot
-- Python: Growing Code, Garden Guardian, Data Quest, Code Cultivation, Code Nexus, The Codex, Data Archivist
+| Project | What is tested |
+| --- | --- |
+| libft | every function vs libc, edge cases, malloc failure, leaks, crashes |
+| ft_printf | every conversion vs the real `printf`, bytes and return value, bonus flags |
+| get_next_line | `BUFFER_SIZE` 1 to 10000000, stdin, invalid fd, read errors, leaks, bonus |
+| push_swap | errors, 2 to 5 numbers vs the fewest moves, 100 / 500 benchmarks, `--bench` |
+| Born2beRoot | `signature.txt`, and `check.sh` to run inside the VM |
+| Python | output line by line, authorized functions, type hints, flake8, mypy |
+
+Python covers Growing Code, Garden Guardian, Data Quest, Code Cultivation,
+Code Nexus, The Codex and Data Archivist. C projects also get norminette, the
+Makefile (rules, flags, relink), forbidden functions and the README.
 
 ## Details
 
+| Mark | Meaning |
+| --- | --- |
+| `KO` | the subject requires it and it is broken |
+| `WARN` | up to your evaluator, or not written in the subject |
+| `SKIP` | a tool is missing, or `42next quick` was used |
+
 Every check comes from the subject. A failure shows the exact call, the
-expected output and yours.
-
-- `KO`: the subject requires it.
-- `WARN`: up to your evaluator.
-- `SKIP`: a tool is missing, or `42next quick` was used.
-
-C projects also get norminette, the Makefile (rules, flags, relink), forbidden
-functions, leaks and the README. Python projects get flake8, mypy and the
-authorized functions. Your folder is never modified.
+expected output and yours. Your folder is never modified: everything runs in a
+temporary copy.
 
 ## Resources
 

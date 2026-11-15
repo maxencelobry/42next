@@ -952,7 +952,8 @@ def check_sys_path(tree):
 
 NODE_LABELS = {"With": "with statement", "ListComp": "list comprehension",
                "DictComp": "dict comprehension", "Yield": "yield",
-               "ClassDef": "class", "SetComp": "set comprehension"}
+               "ClassDef": "class", "SetComp": "set comprehension",
+               "Try": "try block", "ExceptHandler": "except clause"}
 
 
 def static_checks(ex, project):
@@ -1081,6 +1082,7 @@ def lint_checks(ex, project, quick=False):
         if want_flake8:
             cmd = tool("flake8")
             if cmd is None:
+                _note_missing("flake8")
                 results.append(("flake8", "skip", "flake8 not installed"))
             else:
                 proc = subprocess.run(cmd + files, cwd=work,
@@ -1092,6 +1094,7 @@ def lint_checks(ex, project, quick=False):
         if want_mypy:
             cmd = tool("mypy")
             if cmd is None:
+                _note_missing("mypy")
                 results.append(("mypy", "skip", "mypy not installed"))
             else:
                 cache = os.path.join(root, "mypy_cache")
@@ -1104,7 +1107,20 @@ def lint_checks(ex, project, quick=False):
                 out = (proc.stdout + proc.stderr).strip()
                 status = "ok" if proc.returncode == 0 else "ko"
                 name = "mypy"
-                if status == "ko" and want_mypy == "expect_errors":
+                expected = ex.get("mypy_expect")
+                if status == "ko" and expected:
+                    # only the error codes the subject causes on purpose
+                    codes = re.findall(r"error: .*\[([\w-]+)\]\s*$", out,
+                                       re.M)
+                    other = [c for c in codes if c not in expected]
+                    if codes and not other:
+                        status = "warn"
+                        name = ("mypy (the subject says this error is "
+                                "expected, on purpose)")
+                    else:
+                        name = ("mypy (only " + ", ".join(expected)
+                                + " is expected by the subject)")
+                elif status == "ko" and want_mypy == "expect_errors":
                     status = "warn"
                     name = ("mypy (the subject says an error is expected "
                             "here, on purpose)")
@@ -1248,6 +1264,13 @@ def detect(path, only_spec=None):
 
 def label(ex):
     return f"{ex['id']} · {ex['title']} · {ex['file']}"
+
+
+def _note_missing(tool):
+    """Tell core a lint tool is missing (it prints how to install it)."""
+    mod = sys.modules.get("core")
+    if mod is not None:
+        mod.note_missing(tool)
 
 
 def setup_core(color):

@@ -1,7 +1,7 @@
 {
   "project": "growing_code",
   "title": "Growing Code",
-  "note": "Subject v2.0. Each function's output is compared to the subject (prompts included, input() writes them). The outputs are examples: other wording is a warning, the values (numbers, the echoed name, the capital letter) and the messages the subject quotes as fixed (ex1 status, ex5, ex7 units, 'Unknown unit type') must match. Source: only the authorized builtins, no import, nothing but the function(s) in the file (helpers allowed in ex6), real recursion in ex6, type hints + exact signature in ex7, flake8 everywhere, mypy.",
+  "note": "Subject v2.0. Each function's output is compared to the subject (prompts included, input() writes them). The outputs are examples: other wording is a warning, the values (numbers, the echoed name, the capital letter) and the messages the subject quotes as fixed (ex1 status, ex5, ex7 units, 'Unknown unit type') must match. Source: only the authorized builtins, no import, nothing but the function(s) in the file (helpers allowed in ex6), real recursion in ex6, type hints + exact signature in ex7, flake8 everywhere, mypy on ex7 only (\"Check typing using mypy\"; type hints are optional in ex0-ex6).",
   "exercises": [
     {
       "id": "ex0",
@@ -22,7 +22,8 @@
           },
           "args": []
         }
-      ]
+      ],
+      "mypy": false
     },
     {
       "id": "ex1",
@@ -60,7 +61,8 @@
             ]
           }
         }
-      ]
+      ],
+      "mypy": false
     },
     {
       "id": "ex2",
@@ -103,7 +105,8 @@
             "expected": "Enter length: Enter width: Plot area: 0"
           }
         }
-      ]
+      ],
+      "mypy": false
     },
     {
       "id": "ex3",
@@ -142,7 +145,8 @@
             ]
           }
         }
-      ]
+      ],
+      "mypy": false
     },
     {
       "id": "ex4",
@@ -220,7 +224,8 @@
             "assert run(61) != run(60), '60 days (not ready) and 61 days (ready) must differ'"
           ]
         }
-      ]
+      ],
+      "mypy": false
     },
     {
       "id": "ex5",
@@ -297,7 +302,8 @@
             ]
           }
         }
-      ]
+      ],
+      "mypy": false
     },
     {
       "id": "ex6",
@@ -341,7 +347,8 @@
             "expected": "Days until harvest: Day 1\nDay 2\nDay 3\nDay 4\nDay 5\nDay 6\nDay 7\nDay 8\nDay 9\nDay 10\nDay 11\nDay 12\nHarvest time!"
           }
         }
-      ]
+      ],
+      "mypy": false
     },
     {
       "id": "ex6r",
@@ -386,7 +393,8 @@
             "expected": "Days until harvest: Day 1\nDay 2\nDay 3\nDay 4\nDay 5\nDay 6\nDay 7\nDay 8\nDay 9\nDay 10\nDay 11\nDay 12\nHarvest time!"
           }
         }
-      ]
+      ],
+      "mypy": false
     },
     {
       "id": "ex7",

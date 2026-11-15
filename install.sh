@@ -51,4 +51,10 @@ missing=""
 for tool in cc make norminette valgrind flake8 mypy; do
 	command -v "$tool" >/dev/null || missing="$missing $tool"
 done
-[ -z "$missing" ] || echo "optional, not found (those checks are skipped):$missing"
+if [ -n "$missing" ]; then
+	echo "optional, not found (those checks are skipped):$missing"
+	# shellcheck disable=SC2086
+	python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import core
+print("\n".join("  " + x for x in core.install_hints(sys.argv[2:])))' \
+		"$dir/testers/common" $missing 2>/dev/null || true
+fi

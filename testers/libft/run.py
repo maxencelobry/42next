@@ -186,9 +186,9 @@ def make_if_needed(rep, ws_dir, state):
     if text is None:
         rep.check("Makefile present (needed to build libft.a)", False)
         return None
+    # v1.3 has no bonus part: the linked lists are Part 3 of the mandatory
+    # part, so `make` alone must put all 43 functions in libft.a
     res = core.run(["make"], cwd=ws_dir, timeout=300)
-    if "bonus" in core.makefile_targets(text):
-        core.run(["make", "bonus"], cwd=ws_dir, timeout=300)
     if not os.path.isfile(lib):
         rep.check("make builds libft.a at the root", False,
                   detail=core.short_errors(text_of(res)) or
@@ -355,11 +355,15 @@ def check_prototypes(rep, htext, ws_dir):
 
 def check_makefile_group(rep, ws_dir, state):
     rep.section("makefile")
-    ok = core.check_makefile(rep, ws_dir, "libft.a", bonus=True)
+    ok = core.check_makefile(rep, ws_dir, "libft.a")
     state["built"] = True
     text = core.makefile_text(ws_dir)
     if text is None:
         return
+    c99 = re.search(r"-std\s*=\s*c99\b", text)
+    rep.check("no -std=c99 flag", not c99,
+              detail='subject: "forbidden [...] to compile your code with '
+                     'the -std=c99 flag"' if c99 else None)
     rep.check("libtool not used (forbidden, use ar)",
               not re.search(r"\blibtool\b", text))
     rep.check("Makefile uses ar",
@@ -732,9 +736,13 @@ def test_functions(rep, ws, funcs, state, args):
     for func in funcs:
         rep.section(func)
         if func in missing:
-            rep.check(f"{func} found in libft.a", False,
-                      detail="symbol not defined in the archive "
-                             "(missing file in the Makefile?)")
+            why = ("symbol not defined in the archive (missing file in the "
+                   "Makefile?)")
+            if func[3:] in PART3:
+                why += ("\nsubject v1.3: the linked lists are Part 3 of the "
+                        "mandatory part, `make` must build them (no bonus "
+                        "rule)")
+            rep.check(f"{func} found in libft.a", False, detail=why)
             continue
         if func not in cases:
             rep.check(f"{func} tests ran", False,

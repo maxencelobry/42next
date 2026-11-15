@@ -32,7 +32,6 @@
             "assert m.input_temperature('-3') == -3",
             "_, err = capture(m.input_temperature, 'abc')",
             "assert isinstance(err, ValueError), \"'abc' must raise ValueError, got %r\" % err",
-            "assert callable(m.test_temperature), 'test_temperature() missing'",
             "assert callable(getattr(m, 'test_temperature', None)), 'test_temperature() missing'"
           ]
         }
@@ -102,7 +101,7 @@
                 "Caught ZeroDivisionError: division by zero",
                 "Testing operation 2...",
                 {
-                  "re": "Caught FileNotFoundError: \\[Errno 2\\] No such file or directory: '.+'"
+                  "re": ".*\\bFileNotFoundError\\b.*No such file or directory.*"
                 },
                 "Testing operation 3...",
                 "Caught TypeError: can only concatenate str (not \"int\") to str",
@@ -128,12 +127,25 @@
             "    assert err is None, 'operation %d must not raise, got %r' % (n, err)",
             "assert callable(getattr(m, 'test_error_types', None)), 'test_error_types() missing'"
           ]
+        },
+        {
+          "name": "one try: block catches several error types",
+          "mode": "module",
+          "code": [
+            "import ast, inspect",
+            "tree = ast.parse(inspect.getsource(m))",
+            "def broad(h):",
+            "    t = h.type",
+            "    return t is None or isinstance(t, ast.Tuple) or (isinstance(t, ast.Name) and t.id in ('Exception', 'BaseException'))",
+            "ok = any(isinstance(n, ast.Try) and (len(n.handlers) >= 2 or any(broad(h) for h in n.handlers)) for n in ast.walk(tree))",
+            "assert ok, 'no try: block catches several error types (\"Shows how to catch multiple error types with one try: block\")'"
+          ]
         }
       ],
       "mypy": "expect_errors",
-      "require_nodes": {
-        "Try": 1
-      }
+      "forbidden": [
+        "type"
+      ]
     },
     {
       "id": "ex3",
@@ -215,15 +227,16 @@
             "assert any(t.finalbody for t in tries), 'test_watering_system() needs try/except/finally'"
           ]
         }
-      ],
-      "require_nodes": {
-        "Try": 1
-      }
+      ]
     }
   ],
   "defaults": {
     "typed": true,
     "imports": [],
-    "wording": "example"
+    "wording": "example",
+    "require_nodes": {
+      "Try": 1,
+      "ExceptHandler": 1
+    }
   }
 }

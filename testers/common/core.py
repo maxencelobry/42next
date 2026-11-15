@@ -235,6 +235,12 @@ class Report:
         self._close()
         ok = sum(s[1] for s in self.sections)
         ko = sum(s[2] for s in self.sections)
+        if MISSING:
+            print()
+            print(f"  {yellow('missing:')} {', '.join(sorted(MISSING))} "
+                  f"{dim('(the checks that need them were skipped)')}")
+            for line in install_hints(MISSING):
+                print(f"       {dim(line)}")
         print()
         if ko == 0:
             print(bold(green(f"RESULT {ok}/{ok + ko}  all checks passed")))
@@ -341,8 +347,77 @@ def output(res):
     return (res.out + res.err).decode("utf-8", "replace")
 
 
+# Tools whose absence skips checks: Report.finish() says how to install them.
+MISSING: set = set()
+_TRACKED = {"valgrind", "norminette", "flake8", "mypy", "cc", "make", "nm",
+            "git", "docker"}
+_PY_TOOLS = ("norminette", "flake8", "mypy")
+
+
 def have(tool):
-    return shutil.which(tool) is not None
+    ok = shutil.which(tool) is not None
+    if not ok and tool in _TRACKED:
+        MISSING.add(tool)
+    return ok
+
+
+def note_missing(tool):
+    """A tool found another way than have() is missing."""
+    MISSING.add(tool)
+
+
+def _externally_managed():
+    """pip install --user is refused (PEP 668: Ubuntu 23.04+, Debian 12+)."""
+    try:
+        import sysconfig
+        return os.path.isfile(os.path.join(sysconfig.get_paths()["stdlib"],
+                                           "EXTERNALLY-MANAGED"))
+    except (ImportError, KeyError, OSError):
+        return False
+
+
+def install_hints(tools):
+    """The commands that install `tools` on this machine, one per line."""
+    tools = sorted(tools)
+    py = [t for t in tools if t in _PY_TOOLS]
+    native = [t for t in tools if t not in _PY_TOOLS and t != "docker"]
+    lines = []
+    if sys.platform == "darwin":
+        if "valgrind" in native:
+            lines.append("valgrind does not run on recent macOS: memory is "
+                         "checked with AddressSanitizer instead")
+            native.remove("valgrind")
+        if native:
+            lines.append("xcode-select --install")
+    elif native:
+        apt = {"valgrind": "valgrind", "cc": "build-essential",
+               "make": "make", "nm": "binutils", "git": "git"}
+        other = {"valgrind": "valgrind", "cc": "gcc", "make": "make",
+                 "nm": "binutils", "git": "git"}
+        if have("apt-get"):
+            pkgs = [apt[t] for t in native]
+            lines.append("sudo apt install " + " ".join(dict.fromkeys(pkgs)))
+        elif have("dnf"):
+            lines.append("sudo dnf install " + " ".join(other[t]
+                                                        for t in native))
+        elif have("pacman"):
+            lines.append("sudo pacman -S " + " ".join(other[t]
+                                                      for t in native))
+        else:
+            lines.append("install with your package manager: "
+                         + ", ".join(other[t] for t in native))
+    if py:
+        if have("pipx"):
+            lines.append("pipx install " + " ".join(py))
+        elif _externally_managed():
+            lines.append(("sudo apt install pipx && " if have("apt-get")
+                          else "install pipx, then ")
+                         + "pipx install " + " ".join(py))
+        else:
+            lines.append("python3 -m pip install --user " + " ".join(py))
+    if "docker" in tools:
+        lines.append("docker: https://docs.docker.com/engine/install/")
+    return lines
 
 
 # --------------------------------------------------------------------------
@@ -1024,7 +1099,7 @@ def check_readme(rep, project, extra_sections=()):
     italic = re.fullmatch(r"(\*|_)(?!\1)(.+)\1", first)
     inner = italic.group(2) if italic else first
     rep.check("first line is in italics", bool(italic),
-              expected="*This project has been created as part of the 42 "
+              expected="*This activity has been created as part of the 42 "
                        "curriculum by <login>.*",
               got=first[:120] if not italic else None)
     wording = re.search(r"(project|activity) has been created as part of the "

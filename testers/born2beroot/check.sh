@@ -235,11 +235,12 @@ $(lsblk -rno NAME,TYPE "/dev/mapper/$c" 2>/dev/null | awk '$2 == "lvm" { print $
 	for mp in / /home /var /srv /tmp /var/log "[SWAP]"; do
 		printf '%s\n' "$mounts" | grep -qxF "$mp" || missing="$missing $mp"
 	done
+	# v1.3 has no bonus part and its partitioning is only an example:
+	# shown for information, never a WARN
 	if [ -n "$missing" ]; then
-		warn "classic bonus layout not complete (not required by v1.3)" \
-			"missing on LVM:$missing (LVs: $(printf '%s' "$lvs_all" | oneline))" "lsblk"
+		info "not on LVM (old bonus layout, not required by v1.3):$missing (LVs: $(printf '%s' "$lvs_all" | oneline))"
 	else
-		ok "classic bonus layout: / swap /home /var /srv /tmp /var/log on LVM"
+		info "/ swap /home /var /srv /tmp /var/log all on LVM"
 	fi
 fi
 
@@ -791,11 +792,26 @@ if [ -z "$script" ] || [ ! -f "$script" ]; then
 	ko "monitoring.sh found" "a file named monitoring.sh" "not found" "sudo find / -xdev -name monitoring.sh"
 else
 	ok "found $script"
-	if [ -x "$script" ]; then ok "executable"; else ko "monitoring.sh executable" "-rwx..." "$(ls -l "$script")" "ls -l $script"; fi
+	# cron line "bash /path/monitoring.sh": the file needs neither +x nor a
+	# shebang to run with bash. Run directly, it needs both.
+	via_bash=0
+	printf '%s\n' "$cronlines" | grep -qE '(^|[[:space:]/|;&])bash[[:space:]]+[^|;&]*monitoring\.sh' && via_bash=1
+	if [ -x "$script" ]; then
+		ok "executable"
+	elif [ "$via_bash" = 1 ]; then
+		warn "monitoring.sh not executable (cron runs it with bash, so it still runs)" "" "ls -l $script"
+	else
+		ko "monitoring.sh executable (or run by cron as: bash monitoring.sh)" "-rwx..." "$(ls -l "$script")" "ls -l $script"
+	fi
 	sb=$(head -n1 "$script")
 	case $sb in
 		'#!'*bash*) ok "written in bash ($sb)" ;;
-		*) ko "written in bash" "#!/bin/bash" "${sb:-empty first line}" "head -n1 $script" ;;
+		*)
+			if [ "$via_bash" = 1 ]; then
+				warn "no bash shebang (cron runs it with bash)" "first line: ${sb:-empty}" "head -n1 $script"
+			else
+				ko "written in bash" "#!/bin/bash" "${sb:-empty first line}" "head -n1 $script"
+			fi ;;
 	esac
 	if grep -qw wall "$script" || printf '%s\n' "$cronlines" | grep -qw wall; then
 		ok "uses wall (display on all terminals)"
@@ -867,7 +883,7 @@ SUDO
 	out=$(printf '%s\n' "$raw" | grep -v '^__STDERR__ ')
 	err=$(printf '%s\n' "$raw" | sed -n 's/^__STDERR__ //p')
 	if [ "$rc" = 124 ]; then
-		ko "monitoring.sh finishes" "< 60 s" "timeout" "time bash $script"
+		warn "monitoring.sh still running after 60 s (stopped here)" "the output below may be incomplete" "time bash $script"
 	fi
 	printf '%s\n' "$out" | sed 's/^/       | /'
 	if [ -n "$err" ]; then
@@ -911,19 +927,28 @@ SUDO
 	else
 		warn "vCPU shows $g, /proc/cpuinfo says $exp_v" "$l" "nproc"
 	fi
-	# 4. memory
+	# 4. memory, 5. disk: the subject asks for the available amount and the
+	# usage %; "used/total" is the layout of its example only
+	# amount + percentage: at least two numbers, one of them with a %
+	amount_pct() {
+		printf '%s' "$1" | grep -qE "$NUM ?%" &&
+			[ "$(printf '%s' "$1" | grep -oE "$NUM" | wc -l)" -ge 2 ]
+	}
 	l=$(line_of 'mem|ram')
-	if printf '%s' "$l" | grep -qE "$NUM ?[KMGkmg]?i?[Bb]? ?/ ?$NUM" && printf '%s' "$l" | grep -qE "$NUM ?%"; then
+	if ! amount_pct "$l"; then
+		ko "available RAM and usage %" "#Memory Usage: 74/987MB (7.50%)" "${l:-no 'Memory' line}" "free -m"
+	elif printf '%s' "$l" | grep -qE "$NUM ?[KMGkmg]?i?[Bb]? ?/ ?$NUM"; then
 		ok "memory used/total + %"
 	else
-		ko "RAM used/total and usage %" "#Memory Usage: 74/987MB (7.50%)" "${l:-no 'Memory' line}" "free -m"
+		warn "memory line is not used/total like the subject example" "$l" "free -m"
 	fi
-	# 5. disk
 	l=$(line_of 'disk|storage')
-	if printf '%s' "$l" | grep -qE "$NUM ?[KMGTkmgt]?i?[Bb]? ?/ ?$NUM" && printf '%s' "$l" | grep -qE "$NUM ?%"; then
+	if ! amount_pct "$l"; then
+		ko "available storage and usage %" "#Disk Usage: 1009/2Gb (49%)" "${l:-no 'Disk' line}" "df -h --total"
+	elif printf '%s' "$l" | grep -qE "$NUM ?[KMGTkmgt]?i?[Bb]? ?/ ?$NUM"; then
 		ok "disk used/total + %"
 	else
-		ko "storage used/total and usage %" "#Disk Usage: 1009/2Gb (49%)" "${l:-no 'Disk' line}" "df -h --total"
+		warn "disk line is not used/total like the subject example" "$l" "df -h --total"
 	fi
 	# 6. CPU load
 	l=$(line_of 'load|cpu usage|cpu use' 'mem|disk|ram|physical|vcpu')

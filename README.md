@@ -37,11 +37,12 @@ npm install -g .
 
 <br>
 
-A check that needs a missing tool is skipped and says so.
+A check that needs a missing tool is skipped, and the end of the run shows
+the command that installs it on your machine. On Ubuntu:
 
 ```sh
-sudo apt install build-essential valgrind           # cc, make, valgrind
-python3 -m pip install --user norminette flake8 mypy
+sudo apt install build-essential valgrind pipx      # cc, make, valgrind
+pipx install norminette flake8 mypy
 ```
 
 Uninstall:
@@ -98,14 +99,16 @@ test and keeps the menu. The last run is at the top of the menu.
 | Project | What is tested |
 | --- | --- |
 | libft | every function vs libc, edge cases, malloc failure, leaks, crashes |
-| ft_printf | every conversion vs the real `printf`, bytes and return value, bonus flags |
-| get_next_line | `BUFFER_SIZE` 1 to 10000000, stdin, invalid fd, read errors, leaks, bonus |
+| ft_printf | every conversion vs the real `printf`, bytes and return value, flags as warnings |
+| get_next_line | `BUFFER_SIZE` 1 to 10000000, stdin, invalid fd, read errors, leaks, several fds as warnings |
 | push_swap | errors, 2 to 5 numbers vs the fewest moves, 100 / 500 benchmarks, `--bench` |
 | Born2beRoot | `signature.txt`, and `check.sh` to run inside the VM |
+| NetPractice | the 10 exports of "Get my config" at the root, every IP, mask and route, the README |
+| Inception | docker-compose.yml, Dockerfiles, nginx TLS, restart, network, volumes, secrets, the docs, and the running stack when docker is up |
 | Python | output line by line, authorized functions, type hints, flake8, mypy |
 
-Python covers Growing Code, Garden Guardian, Data Quest, Code Cultivation,
-Code Nexus, The Codex and Data Archivist. C projects also get norminette, the
+Python covers Growing Code, Code Cultivation, Garden Guardian, Data Quest,
+Data Archivist, Code Nexus and The Codex. C projects also get norminette, the
 Makefile (rules, flags, relink), forbidden functions and the README.
 
 ## Details

@@ -1,7 +1,7 @@
 {
   "project": "data_archivist",
   "title": "Data Archivist",
-  "note": "Subject v2.0. Each script runs in an empty temporary folder with the fixtures we create (ancient_fragment.txt, chmod 000 / 444 files), nothing in your project is touched. The frame (---, blank lines, contents, the # transform) is checked line by line; messages may be reworded (subject 3.2) as long as the essential info is there: a reworded line is a warning, not a failure. Every file you open must be closed. Source: authorized builtins, imports sys/typing only, no 'with' before ex3, 'with' required in ex3, input() not allowed in ex2, type hints, flake8, mypy.",
+  "note": "Subject v2.0. Each script runs in an empty temporary folder with the fixtures we create (ancient_fragment.txt, chmod 000 / 444 files), nothing in your project is touched. The frame (---, blank lines, contents, the # transform) is checked line by line; messages may be reworded (subject 3.2) as long as the essential info is there: a reworded line is a warning, not a failure. Every file you open must be closed, errors must not crash the script. Source: authorized builtins and the sys / typing / file methods of each 'Authorized:' line (warning), imports sys / typing only (none in ex3), no 'with' before ex3, 'with' required in ex3, input() forbidden in ex2, secure_archive(name, action=..., content=...), type hints, flake8, mypy.",
   "defaults": {
     "typed": true
   },
@@ -167,6 +167,32 @@
               ]
             }
           }
+        },
+        {
+          "name": "only the authorized sys / typing / file methods: sys.argv, typing.IO, read, close",
+          "mode": "module",
+          "cwd": "temp",
+          "load": false,
+          "severity": "warn",
+          "code": [
+            "import ast",
+            "tree = ast.parse(read_text('ft_ancient_text.py'))",
+            "ok_sys = {'argv'}",
+            "ok_io = {'close', 'read'}",
+            "io_names = {'read', 'readline', 'readlines', 'write', 'writelines', 'flush', 'close', 'seek', 'tell', 'truncate', 'fileno', 'readable', 'writable', 'seekable', 'detach'}",
+            "bad = []",
+            "for n in ast.walk(tree):",
+            "    if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in ('sys', 'typing'):",
+            "        ok = ok_sys if n.value.id == 'sys' else {'IO'}",
+            "        if n.attr not in ok:",
+            "            bad.append('%s.%s (line %d)' % (n.value.id, n.attr, n.lineno))",
+            "    elif isinstance(n, ast.Attribute) and n.attr in io_names and n.attr not in ok_io:",
+            "        bad.append('.%s() (line %d)' % (n.attr, n.lineno))",
+            "    elif isinstance(n, ast.ImportFrom) and n.module in ('sys', 'typing'):",
+            "        ok = ok_sys if n.module == 'sys' else {'IO'}",
+            "        bad += ['%s.%s (line %d)' % (n.module, a.name, n.lineno) for a in n.names if a.name not in ok]",
+            "assert not bad, 'not in the Authorized line of the subject: ' + ', '.join(bad)"
+          ]
         }
       ]
     },
@@ -196,6 +222,37 @@
       },
       "track_open": true,
       "tests": [
+        {
+          "name": "no argument -> handled, no crash",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [],
+          "stdin": "\n",
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {},
+          "no_new_files": true
+        },
+        {
+          "name": "missing file -> error shown (subject: [Errno 2]), no crash, nothing saved",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "foo"
+          ],
+          "stdin": "\n",
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {
+            "stdout": {
+              "type": "regex",
+              "pattern": "'foo'.*\\[Errno 2\\] No such file or directory: 'foo'"
+            }
+          },
+          "no_new_files": true
+        },
         {
           "name": "empty file name -> transformed data shown, nothing saved",
           "mode": "script",
@@ -239,7 +296,7 @@
                 "",
                 "---",
                 {
-                  "re": "Enter new file name \\(or empty\\): .+",
+                  "re": ".+",
                   "subject": "Enter new file name (or empty): Not saving data."
                 }
               ]
@@ -291,7 +348,7 @@
                 "",
                 "---",
                 {
-                  "re": "Enter new file name \\(or empty\\): .*'new_fragment\\.txt'.*",
+                  "re": ".*'new_fragment\\.txt'.*",
                   "subject": "Enter new file name (or empty): Saving data to 'new_fragment.txt'"
                 },
                 {
@@ -352,6 +409,59 @@
               }
             }
           ]
+        },
+        {
+          "name": "write refused (read-only target) -> handled, no crash, file untouched",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [
+            "ancient_fragment.txt"
+          ],
+          "stdin": "readonly.txt\n",
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n",
+            "readonly.txt": {
+              "content": "KEEP\n",
+              "mode": "444"
+            }
+          },
+          "match": {},
+          "nonroot": true,
+          "outputs": [
+            {
+              "file": "readonly.txt",
+              "match": {
+                "type": "equals",
+                "expected": "KEEP"
+              }
+            }
+          ]
+        },
+        {
+          "name": "only the authorized sys / typing / file methods: sys.argv, typing.IO, read, write, close",
+          "mode": "module",
+          "cwd": "temp",
+          "load": false,
+          "severity": "warn",
+          "code": [
+            "import ast",
+            "tree = ast.parse(read_text('ft_archive_creation.py'))",
+            "ok_sys = {'argv'}",
+            "ok_io = {'write', 'close', 'read'}",
+            "io_names = {'read', 'readline', 'readlines', 'write', 'writelines', 'flush', 'close', 'seek', 'tell', 'truncate', 'fileno', 'readable', 'writable', 'seekable', 'detach'}",
+            "bad = []",
+            "for n in ast.walk(tree):",
+            "    if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in ('sys', 'typing'):",
+            "        ok = ok_sys if n.value.id == 'sys' else {'IO'}",
+            "        if n.attr not in ok:",
+            "            bad.append('%s.%s (line %d)' % (n.value.id, n.attr, n.lineno))",
+            "    elif isinstance(n, ast.Attribute) and n.attr in io_names and n.attr not in ok_io:",
+            "        bad.append('.%s() (line %d)' % (n.attr, n.lineno))",
+            "    elif isinstance(n, ast.ImportFrom) and n.module in ('sys', 'typing'):",
+            "        ok = ok_sys if n.module == 'sys' else {'IO'}",
+            "        bad += ['%s.%s (line %d)' % (n.module, a.name, n.lineno) for a in n.names if a.name not in ok]",
+            "assert not bad, 'not in the Authorized line of the subject: ' + ', '.join(bad)"
+          ]
         }
       ]
     },
@@ -380,6 +490,18 @@
       },
       "track_open": true,
       "tests": [
+        {
+          "name": "no argument -> handled, no crash",
+          "mode": "script",
+          "cwd": "temp",
+          "argv": [],
+          "stdin": "\n",
+          "fixtures": {
+            "ancient_fragment.txt": "[FRAGMENT 001] Digital preservation protocols established 2087\n[FRAGMENT 002] Knowledge must survive the entropy wars\n[FRAGMENT 003] Every byte saved is a victory against oblivion\n"
+          },
+          "match": {},
+          "no_new_files": true
+        },
         {
           "name": "missing file -> error on stderr (prefixed), header on stdout",
           "mode": "script",
@@ -513,7 +635,7 @@
                 "",
                 "---",
                 {
-                  "re": "Enter new file name \\(or empty\\): .+",
+                  "re": ".+",
                   "subject": "Enter new file name (or empty): Not saving data."
                 }
               ]
@@ -565,7 +687,7 @@
                 "",
                 "---",
                 {
-                  "re": "Enter new file name \\(or empty\\): .*'new_fragment\\.txt'.*",
+                  "re": ".*'new_fragment\\.txt'.*",
                   "subject": "Enter new file name (or empty): Saving data to 'new_fragment.txt'"
                 },
                 {
@@ -609,11 +731,11 @@
               "type": "lines",
               "items": [
                 {
-                  "re": "Enter new file name \\(or empty\\): .*'readonly\\.txt'.*",
+                  "re": ".*'readonly\\.txt'.*",
                   "subject": "Enter new file name (or empty): Saving data to 'readonly.txt'"
                 },
                 {
-                  "re": ".*not saved.*",
+                  "re": "(?!.*saved in file).+",
                   "subject": "Data not saved."
                 }
               ],
@@ -640,7 +762,36 @@
               }
             }
           ]
+        },
+        {
+          "name": "only the authorized sys / typing / file methods: sys.argv / stdin / stdout / stderr, typing.IO, read, readline, write, flush, close",
+          "mode": "module",
+          "cwd": "temp",
+          "load": false,
+          "severity": "warn",
+          "code": [
+            "import ast",
+            "tree = ast.parse(read_text('ft_stream_management.py'))",
+            "ok_sys = {'argv', 'stdout', 'stdin', 'stderr'}",
+            "ok_io = {'close', 'read', 'flush', 'readline', 'write'}",
+            "io_names = {'read', 'readline', 'readlines', 'write', 'writelines', 'flush', 'close', 'seek', 'tell', 'truncate', 'fileno', 'readable', 'writable', 'seekable', 'detach'}",
+            "bad = []",
+            "for n in ast.walk(tree):",
+            "    if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in ('sys', 'typing'):",
+            "        ok = ok_sys if n.value.id == 'sys' else {'IO'}",
+            "        if n.attr not in ok:",
+            "            bad.append('%s.%s (line %d)' % (n.value.id, n.attr, n.lineno))",
+            "    elif isinstance(n, ast.Attribute) and n.attr in io_names and n.attr not in ok_io:",
+            "        bad.append('.%s() (line %d)' % (n.attr, n.lineno))",
+            "    elif isinstance(n, ast.ImportFrom) and n.module in ('sys', 'typing'):",
+            "        ok = ok_sys if n.module == 'sys' else {'IO'}",
+            "        bad += ['%s.%s (line %d)' % (n.module, a.name, n.lineno) for a in n.names if a.name not in ok]",
+            "assert not bad, 'not in the Authorized line of the subject: ' + ', '.join(bad)"
+          ]
         }
+      ],
+      "forbidden": [
+        "input"
       ]
     },
     {
@@ -665,7 +816,7 @@
       "track_open": true,
       "tests": [
         {
-          "name": "demo output follows the subject",
+          "name": "demo: the 4 cases of the subject (read a missing / an inaccessible / a regular file, write)",
           "mode": "script",
           "cwd": "temp",
           "argv": [],
@@ -676,26 +827,41 @@
             "stdout": {
               "type": "lines",
               "items": [
-                "=== Cyber Archives Security ===",
+                {
+                  "re": "=== .+ ===",
+                  "subject": "=== Cyber Archives Security ==="
+                },
                 "",
-                "Using 'secure_archive' to read from a nonexistent file:",
+                {
+                  "re": ".+",
+                  "subject": "Using 'secure_archive' to read from a nonexistent file:"
+                },
                 {
                   "re": "\\(False, .*No such file or directory.*\\)",
                   "subject": "(False, \"[Errno 2] No such file or directory: '/not/existing/file'\")"
                 },
                 "",
-                "Using 'secure_archive' to read from an inaccessible file:",
+                {
+                  "re": ".+",
+                  "subject": "Using 'secure_archive' to read from an inaccessible file:"
+                },
                 {
                   "re": "\\(False, .+\\)"
                 },
                 "",
-                "Using 'secure_archive' to read from a regular file:",
+                {
+                  "re": ".+",
+                  "subject": "Using 'secure_archive' to read from a regular file:"
+                },
                 {
                   "re": "\\(True, .+\\)",
                   "subject": "(True, '[FRAGMENT 001] Digital preservation protocols established 2087\\n[FRAGMENT 002] Knowledge must survive the entropy wars\\n[FRAGMENT 003] Every byte saved is a victory against oblivion\\n')"
                 },
                 "",
-                "Using 'secure_archive' to write previous content to a new file:",
+                {
+                  "re": ".+",
+                  "subject": "Using 'secure_archive' to write previous content to a new file:"
+                },
                 {
                   "re": "\\(True, .+\\)",
                   "subject": "(True, 'Content successfully written to file')"
@@ -703,6 +869,21 @@
               ]
             }
           }
+        },
+        {
+          "name": "secure_archive(file name, optional action, optional content)",
+          "mode": "module",
+          "cwd": "temp",
+          "code": [
+            "import inspect",
+            "f = getattr(m, 'secure_archive', None)",
+            "assert callable(f), 'secure_archive() is missing'",
+            "sig = inspect.signature(f)",
+            "ps = list(sig.parameters.values())",
+            "assert len(ps) == 3, 'the subject asks for 3 parameters (file name, optional action, optional content), got secure_archive%s' % sig",
+            "assert ps[0].default is inspect.Parameter.empty, 'the file name is mandatory: secure_archive%s' % sig",
+            "assert ps[1].default is not inspect.Parameter.empty and ps[2].default is not inspect.Parameter.empty, 'the action and the content must be optional: secure_archive%s' % sig"
+          ]
         },
         {
           "name": "secure_archive(name) reads by default -> (True, content)",
@@ -741,7 +922,7 @@
           ]
         },
         {
-          "name": "write action -> file written, (True, message)",
+          "name": "write action -> file written, (True, message); write refused -> (False, error)",
           "mode": "module",
           "cwd": "temp",
           "code": [
@@ -757,7 +938,45 @@
             "note('write action detected: %r' % (found,)) if found not in ('write', 'w') else None",
             "assert r[0] is True and type(r[1]) is str, 'write must return (True, message), got %r' % (r,)",
             "assert read_text(name) == 'hello vault\\n', 'written content: %r' % read_text(name)",
-            "assert not unclosed(), 'file left open: %r' % unclosed()"
+            "assert not unclosed(), 'file left open: %r' % unclosed()",
+            "if not is_root:",
+            "    r, _, err = call(m.secure_archive, 'readonly.txt', found, 'x')",
+            "    assert err is None, 'writing a read-only file raised %r' % err",
+            "    assert type(r) is tuple and r[0] is False and type(r[1]) is str and 'Permission denied' in r[1], 'write refused (chmod 444) must return (False, error message), got %r' % (r,)",
+            "    assert read_text('readonly.txt') == 'KEEP\\n', 'the read-only file was changed'",
+            "    assert not unclosed(), 'file left open: %r' % unclosed()"
+          ],
+          "fixtures": {
+            "readonly.txt": {
+              "content": "KEEP\n",
+              "mode": "444"
+            }
+          }
+        },
+        {
+          "name": "only the authorized sys / typing / file methods: open, read, write, print",
+          "mode": "module",
+          "cwd": "temp",
+          "load": false,
+          "severity": "warn",
+          "code": [
+            "import ast",
+            "tree = ast.parse(read_text('ft_vault_security.py'))",
+            "ok_sys = set()",
+            "ok_io = {'write', 'read'}",
+            "io_names = {'read', 'readline', 'readlines', 'write', 'writelines', 'flush', 'close', 'seek', 'tell', 'truncate', 'fileno', 'readable', 'writable', 'seekable', 'detach'}",
+            "bad = []",
+            "for n in ast.walk(tree):",
+            "    if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in ('sys', 'typing'):",
+            "        ok = ok_sys if n.value.id == 'sys' else {'IO'}",
+            "        if n.attr not in ok:",
+            "            bad.append('%s.%s (line %d)' % (n.value.id, n.attr, n.lineno))",
+            "    elif isinstance(n, ast.Attribute) and n.attr in io_names and n.attr not in ok_io:",
+            "        bad.append('.%s() (line %d)' % (n.attr, n.lineno))",
+            "    elif isinstance(n, ast.ImportFrom) and n.module in ('sys', 'typing'):",
+            "        ok = ok_sys if n.module == 'sys' else {'IO'}",
+            "        bad += ['%s.%s (line %d)' % (n.module, a.name, n.lineno) for a in n.names if a.name not in ok]",
+            "assert not bad, 'not in the Authorized line of the subject: ' + ', '.join(bad)"
           ]
         }
       ]

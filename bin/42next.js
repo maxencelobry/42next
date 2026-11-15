@@ -50,32 +50,48 @@ function findFile(dir, test, depth = 2) {
 
 // ---------------------------------------------------------------- projects
 
+// Python projects in the order of the Common Core
+const PY_ORDER = ['growing_code', 'code_cultivation', 'garden_guardian', 'data_quest', 'data_archivist', 'code_nexus', 'the_codex'];
+const pyRank = (sp) => { const i = PY_ORDER.indexOf(sp.project); return i < 0 ? PY_ORDER.length : i; };
 const SPECS = ls(path.join(T, 'py', 'specs')).filter((f) => f.endsWith('.json'))
   .map((f) => { try { return JSON.parse(read(path.join(T, 'py', 'specs', f))); } catch { return null; } })
-  .filter(Boolean);
+  .filter(Boolean)
+  .sort((a, b) => pyRank(a) - pyRank(b));
 
 // Each detector gets a directory and returns a score (0 = not this project).
 const C_PROJECTS = [
   {
-    id: 'libft', name: 'libft', tester: 'libft/run.py',
+    id: 'libft', name: 'libft', group: 'C', tester: 'libft/run.py',
     score: (d) => (exists(d, 'libft.h') ? 1 : 0) * ls(d).filter((n) => /^ft_.*\.c$/.test(n)).length,
   },
   {
-    id: 'printf', name: 'ft_printf', tester: 'printf/run.py',
+    id: 'printf', name: 'ft_printf', group: 'C', tester: 'printf/run.py',
     score: (d) => (/libftprintf\.a/.test(read(path.join(d, 'Makefile'))) ? 50 : 0)
       + (findFile(d, (n, p) => n.endsWith('.h') && /ft_printf\s*\(/.test(read(p))) && exists(d, 'Makefile') ? 30 : 0),
   },
   {
-    id: 'gnl', name: 'get_next_line', tester: 'gnl/run.py',
+    id: 'gnl', name: 'get_next_line', group: 'C', tester: 'gnl/run.py',
     score: (d) => (exists(d, 'get_next_line.c') ? 50 : 0) + (exists(d, 'get_next_line.h') ? 10 : 0),
   },
   {
-    id: 'push_swap', name: 'push_swap', tester: 'push_swap/run.py',
+    id: 'push_swap', name: 'push_swap', group: 'C', tester: 'push_swap/run.py',
     score: (d) => (/push_swap/.test(read(path.join(d, 'Makefile'))) ? 50 : 0) + (exists(d, 'push_swap.h') ? 20 : 0),
   },
   {
-    id: 'born2beroot', name: 'Born2beRoot', tester: 'born2beroot/run.py',
+    id: 'born2beroot', name: 'Born2beRoot', group: 'Sysadmin', tester: 'born2beroot/run.py',
     score: (d) => (exists(d, 'signature.txt') ? 50 : 0),
+  },
+  {
+    id: 'netpractice', name: 'NetPractice', group: 'Sysadmin', tester: 'netpractice/run.py',
+    // "Get my config" exports: {"routes":{...},"ifs":{...}}, level1.json ...
+    score: (d) => {
+      const n = ls(d).filter((f) => f.endsWith('.json') && /"routes"\s*:/.test(read(path.join(d, f))) && /"ifs"\s*:/.test(read(path.join(d, f)))).length;
+      return n ? 50 + n : 0;
+    },
+  },
+  {
+    id: 'inception', name: 'Inception', group: 'Sysadmin', tester: 'inception/run.py',
+    score: (d) => (exists(d, 'Makefile') && (exists(d, 'srcs', 'docker-compose.yml') || exists(d, 'srcs', 'docker-compose.yaml')) ? 60 : 0),
   },
 ];
 
@@ -88,7 +104,8 @@ function pyScore(d, spec) {
 function detect(start) {
   const dirs = new Set([start]);
   let p = start;
-  for (let i = 0; i < 3; i++) { p = path.dirname(p); dirs.add(p); }
+  // 5 levels up: Inception's srcs/requirements/nginx/conf is 4 below the root
+  for (let i = 0; i < 5; i++) { p = path.dirname(p); dirs.add(p); }
   for (const c of subdirs(start)) { dirs.add(c); for (const g of subdirs(c)) dirs.add(g); }
 
   const found = [];
@@ -109,7 +126,8 @@ function detect(start) {
     const k = f.kind === 'py' ? `py:${f.dir}` : `${f.id}:${f.dir}`;
     if (!best.has(k) || best.get(k).s < f.s) best.set(k, f);
   }
-  const list = [...best.values()].filter((f) => f.kind !== 'py' || f.s >= Math.min(2, f.spec.exercises.length));
+  // one exercise file is enough: a project you just started (only ex0/) is found
+  const list = [...best.values()];
   // closest to where you are first, a libft inside another project last
   const dist = (f) => (f.dir === start ? 0 : start.startsWith(f.dir) ? 1 : 2) + (f.id === 'libft' && path.basename(f.dir) === 'libft' ? 3 : 0);
   list.sort((a, b) => dist(a) - dist(b) || b.s - a.s);
@@ -593,8 +611,8 @@ async function mainMenu(start) {
     else if (c[0] === 'pc') await cleanPc();
     else if (c[0] === 'force') {
       const all = [
-        { section: 'C' },
-        ...C_PROJECTS.map((pr) => ({ label: pr.name, value: { ...pr, kind: 'c', dir } })),
+        ...['C', 'Sysadmin'].flatMap((g) => [{ section: g },
+          ...C_PROJECTS.filter((pr) => pr.group === g).map((pr) => ({ label: pr.name, value: { ...pr, kind: 'c', dir } }))]),
         { section: 'Python' },
         ...SPECS.map((sp) => ({ label: sp.title, value: { id: sp.project, name: sp.title, tester: 'py/run_tests.py', spec: sp, kind: 'py', dir } })),
       ];

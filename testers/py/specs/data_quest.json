@@ -1,7 +1,7 @@
 {
   "project": "data_quest",
   "title": "Data Quest",
-  "note": "Subject v2.0. argv/stdin exercises are compared to the subject line by line (\"mimic the example\": other wording is a warning, the values and the number of lines must match). The random ones (achievements, stream, alchemist) are parsed back and recomputed (union, intersection, removals, average...). Source: authorized builtins (str/int/float for the whole module, each collection type once its exercise introduced it), allowed imports only, no file I/O, type hints, flake8, mypy.",
+  "note": "Subject v2.0. argv/stdin exercises are compared to the subject line by line (\"mimic the example\": other wording is a warning, the values and the number of lines must match). The random ones (achievements, stream, alchemist) are parsed back (other labels are a warning) and recomputed (union, intersection, removals, average...). Source: authorized builtins (str/int/float for the whole module, each collection type once its exercise introduced it), allowed imports only, no open() (\"No file I/O operations are allowed\"), type hints, flake8, mypy.",
   "exercises": [
     {
       "id": "ex0",
@@ -10,6 +10,7 @@
       "authorized": [
         "len",
         "print",
+        "list",
         "str",
         "int",
         "float"
@@ -223,8 +224,7 @@
             "assert err is None, 'raised %r' % err",
             "assert type(pos) is tuple, 'must return a tuple, got %r' % (pos,)",
             "assert pos == (1.5, -2.0, 30.0), 'expected (1.5, -2.0, 30.0), got %r' % (pos,)",
-            "assert all(type(v) is float for v in pos), 'coordinates must be floats: %r' % (pos,)",
-            "assert out.count('Enter new coordinates') == 3, 'should ask 3 times (2 bad inputs), output: %r' % out"
+            "assert all(type(v) is float for v in pos), 'coordinates must be floats: %r' % (pos,)"
           ]
         }
       ],
@@ -255,44 +255,40 @@
             "stdout": {
               "type": "python",
               "code": [
-                "assert lines[0] == '=== Achievement Tracker System ===', lines[0]",
-                "assert lines[1] == '', 'blank line expected after the title'",
-                "i = 2",
-                "players = {}",
-                "while lines[i].startswith('Player '):",
-                "    name, _, rest = lines[i][7:].partition(': ')",
-                "    players[name] = parse(rest)",
-                "    i += 1",
-                "assert len(players) >= 4, 'at least 4 players expected'",
-                "names = list(players)",
-                "def value(prefix):",
-                "    global i",
-                "    assert lines[i].startswith(prefix), 'line %d: expected %r..., got %r' % (i + 1, prefix, lines[i])",
-                "    v = parse(lines[i][len(prefix):])",
-                "    i += 1",
-                "    return v",
-                "def blank():",
-                "    global i",
-                "    assert lines[i] == '', 'line %d: blank line expected' % (i + 1)",
-                "    i += 1",
-                "blank()",
-                "union = set().union(*players.values())",
-                "inter = players[names[0]].intersection(*players.values())",
-                "assert value('All distinct achievements: ') == union, 'distinct != union of all sets'",
-                "blank()",
-                "assert value('Common achievements: ') == inter, 'common != intersection of all sets'",
-                "blank()",
-                "for n in names:",
-                "    others = set().union(*[players[o] for o in names if o != n])",
-                "    assert value('Only %s has: ' % n) == players[n] - others, 'wrong \"Only %s has\"' % n",
-                "blank()",
+                "if lines[0] != '=== Achievement Tracker System ===':",
+                "    note('title differs from the subject: %r' % lines[0])",
+                "def lit(ln, opener):",
+                "    idx = ln.find(opener)",
+                "    assert idx >= 0, 'no %s...%s value on the line: %r' % (opener, {'[': ']', '{': '}', '(': ')'}[opener], ln)",
+                "    return ln[:idx], parse(ln[idx:])",
+                "def labels_note(got, want):",
+                "    for a, b in zip(got, want):",
+                "        if a.rstrip() != b.rstrip():",
+                "            note('labels worded differently from the subject example (accepted, same values): %r vs %r' % (a.rstrip(), b.rstrip()))",
+                "            return",
+                "def a_set(ln):",
+                "    cut = [x for x in (ln.find('{'), ln.find('set()')) if x >= 0]",
+                "    assert cut, 'no set on the line: %r' % ln",
+                "    return ln[:min(cut)], parse(ln[min(cut):])",
+                "rows = [a_set(ln) for ln in lines[1:] if ln.strip()]",
+                "n = (len(rows) - 2) // 3",
+                "assert n >= 4 and len(rows) == 3 * n + 2, '%d set lines: the subject shows 4+ players, the distinct and common sets, then one \"only\" and one \"missing\" line per player' % len(rows)",
+                "labels = [lab for lab, _ in rows]",
+                "players = [v for _, v in rows[:n]]",
+                "names = [lab.rstrip().rstrip(':')[7:] if lab.startswith('Player ') else lab.rstrip().rstrip(':') for lab in labels[:n]]",
+                "labels_note(labels, ['Player %s: ' % x for x in names] + ['All distinct achievements: ', 'Common achievements: '] + ['Only %s has: ' % x for x in names] + ['%s is missing: ' % x for x in names])",
+                "assert all(type(p) is set for p in players), 'player lines must show sets'",
+                "assert rows[n][1] == set().union(*players), 'distinct != union of all sets'",
+                "assert rows[n + 1][1] == players[0].intersection(*players), 'common != intersection of all sets'",
+                "for k in range(n):",
+                "    others = set().union(*[players[o] for o in range(n) if o != k])",
+                "    assert rows[n + 2 + k][1] == players[k] - others, 'wrong \"Only %s has\"' % names[k]",
                 "full = None",
-                "for n in names:",
-                "    miss = value('%s is missing: ' % n)",
-                "    assert not miss & players[n], '%s: missing contains owned ones' % n",
-                "    full = full or (miss | players[n])",
-                "    assert miss | players[n] == full, '%s: owned + missing != the full list' % n",
-                "assert i == len(lines), 'extra output: %r' % lines[i]"
+                "for k in range(n):",
+                "    miss = rows[2 * n + 2 + k][1]",
+                "    assert not miss & players[k], '%s: missing contains owned ones' % names[k]",
+                "    full = full or (miss | players[k])",
+                "    assert miss | players[k] == full, '%s: owned + missing != the full list' % names[k]"
               ]
             }
           }
@@ -305,44 +301,40 @@
             "stdout": {
               "type": "python",
               "code": [
-                "assert lines[0] == '=== Achievement Tracker System ===', lines[0]",
-                "assert lines[1] == '', 'blank line expected after the title'",
-                "i = 2",
-                "players = {}",
-                "while lines[i].startswith('Player '):",
-                "    name, _, rest = lines[i][7:].partition(': ')",
-                "    players[name] = parse(rest)",
-                "    i += 1",
-                "assert len(players) >= 4, 'at least 4 players expected'",
-                "names = list(players)",
-                "def value(prefix):",
-                "    global i",
-                "    assert lines[i].startswith(prefix), 'line %d: expected %r..., got %r' % (i + 1, prefix, lines[i])",
-                "    v = parse(lines[i][len(prefix):])",
-                "    i += 1",
-                "    return v",
-                "def blank():",
-                "    global i",
-                "    assert lines[i] == '', 'line %d: blank line expected' % (i + 1)",
-                "    i += 1",
-                "blank()",
-                "union = set().union(*players.values())",
-                "inter = players[names[0]].intersection(*players.values())",
-                "assert value('All distinct achievements: ') == union, 'distinct != union of all sets'",
-                "blank()",
-                "assert value('Common achievements: ') == inter, 'common != intersection of all sets'",
-                "blank()",
-                "for n in names:",
-                "    others = set().union(*[players[o] for o in names if o != n])",
-                "    assert value('Only %s has: ' % n) == players[n] - others, 'wrong \"Only %s has\"' % n",
-                "blank()",
+                "if lines[0] != '=== Achievement Tracker System ===':",
+                "    note('title differs from the subject: %r' % lines[0])",
+                "def lit(ln, opener):",
+                "    idx = ln.find(opener)",
+                "    assert idx >= 0, 'no %s...%s value on the line: %r' % (opener, {'[': ']', '{': '}', '(': ')'}[opener], ln)",
+                "    return ln[:idx], parse(ln[idx:])",
+                "def labels_note(got, want):",
+                "    for a, b in zip(got, want):",
+                "        if a.rstrip() != b.rstrip():",
+                "            note('labels worded differently from the subject example (accepted, same values): %r vs %r' % (a.rstrip(), b.rstrip()))",
+                "            return",
+                "def a_set(ln):",
+                "    cut = [x for x in (ln.find('{'), ln.find('set()')) if x >= 0]",
+                "    assert cut, 'no set on the line: %r' % ln",
+                "    return ln[:min(cut)], parse(ln[min(cut):])",
+                "rows = [a_set(ln) for ln in lines[1:] if ln.strip()]",
+                "n = (len(rows) - 2) // 3",
+                "assert n >= 4 and len(rows) == 3 * n + 2, '%d set lines: the subject shows 4+ players, the distinct and common sets, then one \"only\" and one \"missing\" line per player' % len(rows)",
+                "labels = [lab for lab, _ in rows]",
+                "players = [v for _, v in rows[:n]]",
+                "names = [lab.rstrip().rstrip(':')[7:] if lab.startswith('Player ') else lab.rstrip().rstrip(':') for lab in labels[:n]]",
+                "labels_note(labels, ['Player %s: ' % x for x in names] + ['All distinct achievements: ', 'Common achievements: '] + ['Only %s has: ' % x for x in names] + ['%s is missing: ' % x for x in names])",
+                "assert all(type(p) is set for p in players), 'player lines must show sets'",
+                "assert rows[n][1] == set().union(*players), 'distinct != union of all sets'",
+                "assert rows[n + 1][1] == players[0].intersection(*players), 'common != intersection of all sets'",
+                "for k in range(n):",
+                "    others = set().union(*[players[o] for o in range(n) if o != k])",
+                "    assert rows[n + 2 + k][1] == players[k] - others, 'wrong \"Only %s has\"' % names[k]",
                 "full = None",
-                "for n in names:",
-                "    miss = value('%s is missing: ' % n)",
-                "    assert not miss & players[n], '%s: missing contains owned ones' % n",
-                "    full = full or (miss | players[n])",
-                "    assert miss | players[n] == full, '%s: owned + missing != the full list' % n",
-                "assert i == len(lines), 'extra output: %r' % lines[i]"
+                "for k in range(n):",
+                "    miss = rows[2 * n + 2 + k][1]",
+                "    assert not miss & players[k], '%s: missing contains owned ones' % names[k]",
+                "    full = full or (miss | players[k])",
+                "    assert miss | players[k] == full, '%s: owned + missing != the full list' % names[k]"
               ]
             }
           }
@@ -393,29 +385,52 @@
           ],
           "match": {
             "exit_code": 0,
-            "stdout": {
-              "type": "equals",
-              "expected": "=== Inventory System Analysis ===\nRedundant item 'sword' - discarding\nError - invalid parameter 'hello'\nQuantity error for 'key': invalid literal for int() with base 10: 'value'\nGot inventory: {'sword': 1, 'potion': 5, 'shield': 2, 'armor': 3, 'helmet': 1}\nItem list: ['sword', 'potion', 'shield', 'armor', 'helmet']\nTotal quantity of the 5 items: 12\nItem sword represents 8.3%\nItem potion represents 41.7%\nItem shield represents 16.7%\nItem armor represents 25.0%\nItem helmet represents 8.3%\nItem most abundant: potion with quantity 5\nItem least abundant: sword with quantity 1\nUpdated inventory: {'sword': 1, 'potion': 5, 'shield': 2, 'armor': 3, 'helmet': 1, 'magic_item': 1}",
-              "inputs": [
-                "sword:1",
-                "potion:5",
-                "shield:2",
-                "armor:3",
-                "helmet:1",
-                "sword:2",
-                "hello",
-                "key:value",
-                "sword",
-                "potion",
-                "shield",
-                "armor",
-                "helmet",
-                "hello",
-                "key",
-                "value",
-                "magic_item"
-              ]
-            }
+            "stdout": [
+              {
+                "type": "equals",
+                "expected": "=== Inventory System Analysis ===\nRedundant item 'sword' - discarding\nError - invalid parameter 'hello'\nQuantity error for 'key': invalid literal for int() with base 10: 'value'\nGot inventory: {'sword': 1, 'potion': 5, 'shield': 2, 'armor': 3, 'helmet': 1}\nItem list: ['sword', 'potion', 'shield', 'armor', 'helmet']\nTotal quantity of the 5 items: 12\nItem sword represents 8.3%\nItem potion represents 41.7%\nItem shield represents 16.7%\nItem armor represents 25.0%\nItem helmet represents 8.3%\nItem most abundant: potion with quantity 5\nItem least abundant: sword with quantity 1\nUpdated inventory: {'sword': 1, 'potion': 5, 'shield': 2, 'armor': 3, 'helmet': 1, 'magic_item': 1}",
+                "inputs": [
+                  "sword:1",
+                  "potion:5",
+                  "shield:2",
+                  "armor:3",
+                  "helmet:1",
+                  "sword:2",
+                  "hello",
+                  "key:value",
+                  "sword",
+                  "potion",
+                  "shield",
+                  "armor",
+                  "helmet",
+                  "hello",
+                  "key",
+                  "value",
+                  "magic_item"
+                ],
+                "ignore": [
+                  ", 'magic_item': 1"
+                ]
+              },
+              {
+                "type": "python",
+                "code": [
+                  "dicts = []",
+                  "for ln in lines:",
+                  "    if '{' in ln:",
+                  "        try:",
+                  "            v = parse(ln[ln.index('{'):])",
+                  "        except (ValueError, SyntaxError):",
+                  "            continue",
+                  "        if isinstance(v, dict):",
+                  "            dicts.append(v)",
+                  "assert len(dicts) >= 2, 'the inventory must be displayed, then displayed again after adding a new item'",
+                  "first, last = dicts[0], dicts[-1]",
+                  "new = [k for k in last if k not in first]",
+                  "assert new and all(last.get(k) == v for k, v in first.items()), 'the last inventory should be the first one plus a new item: %r' % last"
+                ]
+              }
+            ]
           }
         },
         {
@@ -433,16 +448,38 @@
               "type": "python",
               "code": [
                 "import re",
-                "def about(word):",
+                "dict_lines = [n for n, ln in enumerate(lines) if '{' in ln]",
+                "def about(word, pos):",
                 "    got = [ln for ln in lines if word in ln.lower() and 'abundant' in ln.lower()]",
-                "    assert got, 'no \"%s abundant\" line' % word",
+                "    if not got:",
+                "        got = [ln for ln in lines if word in ln.lower()]",
+                "    if not got:",
+                "        assert len(dict_lines) >= 2, 'no \"%s abundant\" line found' % word",
+                "        got = [lines[dict_lines[-1] - 2 + pos]]",
+                "        note('no \"%s abundant\" wording: took the line where the subject puts it: %r' % (word, got[0]))",
                 "    return got[0]",
-                "most, least = about('most'), about('least')",
+                "most, least = about('most', 0), about('least', 1)",
                 "assert re.search(r'\\bb\\b', most) and not re.search(r'\\bc\\b', most), 'most abundant should be b (first of b/c): %r' % most",
                 "assert re.search(r'\\ba\\b', least) and not re.search(r'\\bd\\b', least), 'least abundant should be a (first of a/d): %r' % least"
               ]
             }
           }
+        },
+        {
+          "name": "no argument -> no crash",
+          "mode": "script",
+          "argv": [],
+          "match": {}
+        },
+        {
+          "name": "only invalid arguments -> no crash",
+          "mode": "script",
+          "argv": [
+            "hello",
+            "key:value",
+            "a:b:c"
+          ],
+          "match": {}
         }
       ],
       "imports": [
@@ -478,31 +515,50 @@
             "stdout": {
               "type": "python",
               "code": [
-                "assert lines[0] == '=== Game Data Stream Processor ===', lines[0]",
                 "import re",
+                "if lines[0] != '=== Game Data Stream Processor ===':",
+                "    note('title differs from the subject: %r' % lines[0])",
+                "def lit(ln, opener):",
+                "    idx = ln.find(opener)",
+                "    assert idx >= 0, 'no %s...%s value on the line: %r' % (opener, {'[': ']', '{': '}', '(': ')'}[opener], ln)",
+                "    return ln[:idx], parse(ln[idx:])",
+                "def labels_note(got, want):",
+                "    for a, b in zip(got, want):",
+                "        if a.rstrip() != b.rstrip():",
+                "            note('labels worded differently from the subject example (accepted, same values): %r vs %r' % (a.rstrip(), b.rstrip()))",
+                "            return",
+                "assert len(lines) > 1001, 'the subject shows 1000 event lines after the title, got %d lines' % (len(lines) - 1)",
+                "odd = 0",
                 "for n in range(1000):",
                 "    line = lines[n + 1]",
-                "    assert re.fullmatch(r'Event %d: Player \\S+ did action \\S+' % n, line), 'line %d: %r' % (n + 2, line)",
-                "head = 'Built list of 10 events: '",
-                "assert lines[1001].startswith(head), 'line 1002: %r' % lines[1001]",
-                "events = parse(lines[1001][len(head):])",
-                "assert len(events) == 10, 'the list must hold 10 events'",
+                "    assert re.search(r'(?<![\\d.])%d(?![\\d.])' % n, line), 'line %d: event %d expected, got %r' % (n + 2, n, line)",
+                "    if not re.fullmatch(r'Event %d: Player \\S+ did action \\S+' % n, line):",
+                "        odd += 1",
+                "if odd:",
+                "    note('%d event line(s) worded differently from the subject example (accepted): %r' % (odd, lines[1]))",
+                "rest = [ln for ln in lines[1001:] if ln.strip()]",
+                "lab, events = lit(rest[0], '[')",
+                "want = ['Built list of 10 events: ']",
+                "got_labels = [lab]",
+                "assert type(events) is list and len(events) == 10, 'the list must hold 10 events: %r' % rest[0]",
                 "for e in events:",
                 "    assert type(e) is tuple and len(e) == 2, 'not a (name, action): %r' % (e,)",
-                "i = 1002",
+                "j = 1",
                 "while events:",
-                "    got = lines[i]",
-                "    assert got.startswith('Got event from list: '), 'line %d: %r' % (i + 1, got)",
-                "    e = parse(got[21:])",
+                "    assert j < len(rest), 'output ends before the list is empty: %r left' % events",
+                "    lab, e = lit(rest[j], '(')",
+                "    got_labels.append(lab)",
                 "    assert e in events, '%r was not in the list' % (e,)",
-                "    rem = lines[i + 1]",
-                "    assert rem.startswith('Remains in list: '), 'line %d: %r' % (i + 2, rem)",
-                "    rem = parse(rem[17:])",
+                "    assert j + 1 < len(rest), 'no remaining list after %r' % rest[j]",
+                "    lab, rem = lit(rest[j + 1], '[')",
+                "    got_labels.append(lab)",
+                "    want += ['Got event from list: ', 'Remains in list: ']",
                 "    assert any(events[:k] + events[k + 1:] == rem",
-                "               for k in range(len(events)) if events[k] == e), 'line %d: remaining list != previous list minus %r' % (i + 2, e)",
+                "               for k in range(len(events)) if events[k] == e), '%r: remaining list != previous list minus %r' % (rest[j + 1], e)",
                 "    events = rem",
-                "    i += 2",
-                "assert i == len(lines), 'extra output: %r' % lines[i]"
+                "    j += 2",
+                "assert j == len(rest), 'extra output: %r' % rest[j]",
+                "labels_note(got_labels, want)"
               ]
             }
           }
@@ -537,6 +593,18 @@
             "    f = getattr(m, name, None)",
             "    assert callable(f), '%s() is missing' % name",
             "    assert inspect.isgeneratorfunction(f), '%s() must be a generator function (yield)' % name"
+          ]
+        },
+        {
+          "name": "consume_event() is used directly in a for .. in ..",
+          "mode": "module",
+          "code": [
+            "import ast, inspect",
+            "tree = ast.parse(inspect.getsource(m))",
+            "def name(f):",
+            "    return getattr(f, 'id', getattr(f, 'attr', None))",
+            "ok = any(isinstance(n, (ast.For, ast.comprehension)) and isinstance(n.iter, ast.Call) and name(n.iter.func) == 'consume_event' for n in ast.walk(tree))",
+            "assert ok, '\"This generator must be used directly in the for .. in .. construct\": no for x in consume_event(...) found'"
           ]
         }
       ],
@@ -575,25 +643,44 @@
             "stdout": {
               "type": "python",
               "code": [
-                "assert lines[0] == '=== Game Data Alchemist ===', lines[0]",
-                "assert lines[1] == '', 'line 2: blank line expected'",
-                "def value(n, prefix):",
-                "    assert lines[n].startswith(prefix), 'line %d: expected %r..., got %r' % (n + 1, prefix, lines[n])",
-                "    return lines[n][len(prefix):]",
-                "players = parse(value(2, 'Initial list of players: '))",
-                "assert any(p != p.capitalize() for p in players), 'some names must not be capitalized'",
+                "import re",
+                "if lines[0] != '=== Game Data Alchemist ===':",
+                "    note('title differs from the subject: %r' % lines[0])",
+                "def lit(ln, opener):",
+                "    idx = ln.find(opener)",
+                "    assert idx >= 0, 'no %s...%s value on the line: %r' % (opener, {'[': ']', '{': '}', '(': ')'}[opener], ln)",
+                "    return ln[:idx], parse(ln[idx:])",
+                "def labels_note(got, want):",
+                "    for a, b in zip(got, want):",
+                "        if a.rstrip() != b.rstrip():",
+                "            note('labels worded differently from the subject example (accepted, same values): %r vs %r' % (a.rstrip(), b.rstrip()))",
+                "            return",
+                "rows = [ln for ln in lines[1:] if ln.strip()]",
+                "assert len(rows) == 6, '%d non-blank lines after the title, the subject shows 6' % len(rows)",
+                "got_labels = []",
+                "lab, players = lit(rows[0], '[')",
+                "got_labels.append(lab)",
+                "assert any(p != p.capitalize() for p in players) and any(p == p.capitalize() for p in players), 'some names must be capitalized and others not: %r' % players",
                 "caps = [p.capitalize() for p in players]",
-                "assert parse(value(3, 'New list with all names capitalized: ')) == caps",
+                "lab, v = lit(rows[1], '[')",
+                "got_labels.append(lab)",
+                "assert v == caps, 'all names capitalized should be %r' % caps",
                 "only = [p for p in players if p == p.capitalize()]",
-                "assert parse(value(4, 'New list of capitalized names only: ')) == only",
-                "assert lines[5] == '', 'line 6: blank line expected'",
-                "scores = parse(value(6, 'Score dict: '))",
-                "assert list(scores) == caps, 'score dict keys != capitalized names'",
+                "lab, v = lit(rows[2], '[')",
+                "got_labels.append(lab)",
+                "assert v == only, 'capitalized names only should be %r' % only",
+                "lab, scores = lit(rows[3], '{')",
+                "got_labels.append(lab)",
+                "assert list(scores) == list(dict.fromkeys(caps)), 'score dict keys != capitalized names'",
                 "avg = sum(scores.values()) / len(scores)",
-                "assert float(value(7, 'Score average is ')) == round(avg, 2), 'average should be %s' % round(avg, 2)",
+                "nums = re.findall(r'-?\\d+(?:\\.\\d+)?', rows[4])",
+                "assert nums and abs(float(nums[-1]) - avg) < 0.01, 'average should be %s: %r' % (round(avg, 2), rows[4])",
+                "got_labels.append(rows[4][:rows[4].rfind(nums[-1])])",
                 "high = {k: v for k, v in scores.items() if v > avg}",
-                "assert parse(value(8, 'High scores: ')) == high, 'high scores should be %s' % high",
-                "assert len(lines) == 9, 'extra output: %r' % lines[9:]"
+                "lab, v = lit(rows[5], '{')",
+                "got_labels.append(lab)",
+                "assert v == high, 'high scores should be %s' % high",
+                "labels_note(got_labels, ['Initial list of players: ', 'New list with all names capitalized: ', 'New list of capitalized names only: ', 'Score dict: ', 'Score average is ', 'High scores: '])"
               ]
             }
           }
@@ -606,25 +693,44 @@
             "stdout": {
               "type": "python",
               "code": [
-                "assert lines[0] == '=== Game Data Alchemist ===', lines[0]",
-                "assert lines[1] == '', 'line 2: blank line expected'",
-                "def value(n, prefix):",
-                "    assert lines[n].startswith(prefix), 'line %d: expected %r..., got %r' % (n + 1, prefix, lines[n])",
-                "    return lines[n][len(prefix):]",
-                "players = parse(value(2, 'Initial list of players: '))",
-                "assert any(p != p.capitalize() for p in players), 'some names must not be capitalized'",
+                "import re",
+                "if lines[0] != '=== Game Data Alchemist ===':",
+                "    note('title differs from the subject: %r' % lines[0])",
+                "def lit(ln, opener):",
+                "    idx = ln.find(opener)",
+                "    assert idx >= 0, 'no %s...%s value on the line: %r' % (opener, {'[': ']', '{': '}', '(': ')'}[opener], ln)",
+                "    return ln[:idx], parse(ln[idx:])",
+                "def labels_note(got, want):",
+                "    for a, b in zip(got, want):",
+                "        if a.rstrip() != b.rstrip():",
+                "            note('labels worded differently from the subject example (accepted, same values): %r vs %r' % (a.rstrip(), b.rstrip()))",
+                "            return",
+                "rows = [ln for ln in lines[1:] if ln.strip()]",
+                "assert len(rows) == 6, '%d non-blank lines after the title, the subject shows 6' % len(rows)",
+                "got_labels = []",
+                "lab, players = lit(rows[0], '[')",
+                "got_labels.append(lab)",
+                "assert any(p != p.capitalize() for p in players) and any(p == p.capitalize() for p in players), 'some names must be capitalized and others not: %r' % players",
                 "caps = [p.capitalize() for p in players]",
-                "assert parse(value(3, 'New list with all names capitalized: ')) == caps",
+                "lab, v = lit(rows[1], '[')",
+                "got_labels.append(lab)",
+                "assert v == caps, 'all names capitalized should be %r' % caps",
                 "only = [p for p in players if p == p.capitalize()]",
-                "assert parse(value(4, 'New list of capitalized names only: ')) == only",
-                "assert lines[5] == '', 'line 6: blank line expected'",
-                "scores = parse(value(6, 'Score dict: '))",
-                "assert list(scores) == caps, 'score dict keys != capitalized names'",
+                "lab, v = lit(rows[2], '[')",
+                "got_labels.append(lab)",
+                "assert v == only, 'capitalized names only should be %r' % only",
+                "lab, scores = lit(rows[3], '{')",
+                "got_labels.append(lab)",
+                "assert list(scores) == list(dict.fromkeys(caps)), 'score dict keys != capitalized names'",
                 "avg = sum(scores.values()) / len(scores)",
-                "assert float(value(7, 'Score average is ')) == round(avg, 2), 'average should be %s' % round(avg, 2)",
+                "nums = re.findall(r'-?\\d+(?:\\.\\d+)?', rows[4])",
+                "assert nums and abs(float(nums[-1]) - avg) < 0.01, 'average should be %s: %r' % (round(avg, 2), rows[4])",
+                "got_labels.append(rows[4][:rows[4].rfind(nums[-1])])",
                 "high = {k: v for k, v in scores.items() if v > avg}",
-                "assert parse(value(8, 'High scores: ')) == high, 'high scores should be %s' % high",
-                "assert len(lines) == 9, 'extra output: %r' % lines[9:]"
+                "lab, v = lit(rows[5], '{')",
+                "got_labels.append(lab)",
+                "assert v == high, 'high scores should be %s' % high",
+                "labels_note(got_labels, ['Initial list of players: ', 'New list with all names capitalized: ', 'New list of capitalized names only: ', 'Score dict: ', 'Score average is ', 'High scores: '])"
               ]
             }
           }
@@ -637,6 +743,9 @@
   ],
   "defaults": {
     "typed": true,
-    "wording": "example"
+    "wording": "example",
+    "forbidden": [
+      "open"
+    ]
   }
 }

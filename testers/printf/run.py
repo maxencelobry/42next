@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""42next tester for ft_printf (Common Core).
+"""42next tester for ft_printf (Common Core, subject v1.1).
+
+v1.1 has no bonus part: flags and width are tested only when the Makefile
+has a bonus rule, and a mismatch there is a WARN, never a KO.
 
 Every case calls the real printf of the libc and ft_printf with the same
 arguments, in the same binary. ft_printf runs in a forked child (a crash or
@@ -39,7 +42,8 @@ GROUPS = [("files", "ft_printf.h header and prototype"),
           ("readme", "README.md"),
           ("repo", "repository hygiene"),
           *CONV_GROUPS,
-          ("bonus", "bonus: flags -0.# + and width (if make bonus exists)")]
+          ("bonus", "flags -0.# + and width (not in subject v1.1: WARN only, "
+                    "if make bonus exists)")]
 
 TEST_FLAGS = ["-g", "-Wno-format", "-Wno-format-security",
               "-Wno-format-zero-length", "-Wno-unused-function"]
@@ -286,7 +290,9 @@ def judge(case, rec):
     return False, exp_txt, got_txt, "\n".join(lines)
 
 
-def report_group(rep, cases, ids, records):
+def report_group(rep, cases, ids, records, soft=False):
+    """soft: the part is not in the subject (bonus), every failure is a
+    WARN."""
     shown = 0
     hidden = 0
     hung = [i for i in ids if records.get(i, ("",))[0] == "timeout"]
@@ -300,12 +306,20 @@ def report_group(rep, cases, ids, records):
             if stopped:
                 not_run.append(i)
                 continue
+            if soft:
+                rep.warn(name, "no result: the test runner itself died")
+                continue
             rep.check(name, False, detail="no result: the test runner itself "
                       "died (see above)")
             continue
         ok, exp, got, detail = judge(case, rec)
         if ok:
             rep.check(name, True)
+            continue
+        if soft:
+            rep.warn(name + "  (no bonus part in subject v1.1)",
+                     f"expected: {exp}\ngot:      {got}"
+                     + (f"\n{detail}" if detail else ""))
             continue
         # undefined in C / not in the subject: only a WARN, but a leak in
         # the call stays a KO
@@ -324,10 +338,14 @@ def report_group(rep, cases, ids, records):
         print(core.red(f"  ... {hidden} more failing case(s) in this group "
                        "(use --verbose to see all)"))
     if not_run:
-        rep.check(f"group stopped after {len(hung)} timeouts: "
-                  f"{len(not_run)} more case(s) not run", False,
-                  detail="calls that hung:\n"
+        name = (f"group stopped after {len(hung)} timeouts: "
+                f"{len(not_run)} more case(s) not run")
+        detail = ("calls that hung:\n"
                   + "\n".join("  " + cases[i].label for i in hung))
+        if soft:
+            rep.warn(name, detail)
+        else:
+            rep.check(name, False, detail=detail)
 
 
 # --------------------------------------------------------------------------
@@ -402,7 +420,8 @@ def group_header(rep, ws, build):
 
 def group_makefile(rep, ws, build):
     rep.section("Makefile")
-    core.check_makefile(rep, ws.dir, NAME, bonus=True)
+    # v1.1 has no bonus part: `make bonus` is not checked here
+    core.check_makefile(rep, ws.dir, NAME)
     text = core.makefile_text(ws.dir) or ""
     uses_ar = re.search(r"(^|\s|\$\()ar(\)|\s)", text, re.M) is not None
     rep.check("library created with ar", uses_ar or "$(AR)" in text,
@@ -428,17 +447,26 @@ def group_makefile(rep, ws, build):
                   + "\n".join([ln for ln in err.splitlines()
                               if "relocation" in ln][:2]
                               or [core.short_errors(err, 4)]))
-        if b.has_bonus_rule and b.bonus_error:
-            rep.check("make bonus (fresh build)", False, detail=b.bonus_error)
-    libft = ws.path("libft")
-    if os.path.isdir(libft):
-        rep.check("libft/ has its own Makefile",
-                  core.makefile_text(libft) is not None)
-        calls = re.search(r"(make|\$\(MAKE\))\s+(-C|--directory[= ])\s*\.?/?"
-                          r"libft|cd\s+\.?/?libft\s*&&\s*(make|\$\(MAKE\))",
-                          text)
-        rep.check("Makefile builds libft with its Makefile (make -C libft)",
-                  bool(calls))
+    quote = ('subject: "copy its sources and its associated Makefile into a '
+             'libft folder. Your activity\'s Makefile must compile the '
+             'library by using its Makefile"')
+    dirs = libft_dirs(ws.dir)
+    if not dirs:
+        stray = libft_headers(ws.dir)
+        if stray:
+            rep.check("libft sources in a libft folder", False,
+                      detail="libft.h found outside a libft/ folder: "
+                      + ", ".join(stray[:4]) + "\n" + quote)
+    libft = dirs[0] if dirs else None
+    if libft:
+        rel = os.path.relpath(libft, ws.dir)
+        rep.check(f"{rel}/ has its own Makefile",
+                  core.makefile_text(libft) is not None,
+                  detail=quote)
+        calls = libft_through_make(ws.dir, libft, text)
+        rep.check(f"Makefile builds libft with its Makefile (make -C {rel})",
+                  calls, detail=None if calls else
+                  "`make` never runs make in " + rel + "/\n" + quote)
         if b.mand:
             syms = core.external_symbols(
                 archive_objects(ws, b.mand, "libft")) or []
@@ -446,6 +474,57 @@ def group_makefile(rep, ws, build):
             rep.check(f"libft objects are inside {NAME}", not missing,
                       detail="undefined in the archive: " + ", ".join(missing)
                       if missing else None)
+
+
+def libft_dirs(top):
+    """Folders named libft (the root one first)."""
+    found = []
+    for root, dirs, files in os.walk(top):
+        dirs[:] = sorted(x for x in dirs if not x.startswith("."))
+        if os.path.basename(root) == "libft" and root != top:
+            found.append(root)
+    found.sort(key=lambda d: (os.path.dirname(d) != top, d))
+    return found
+
+
+def libft_headers(top):
+    """libft.h files that are not inside a folder named libft."""
+    out = []
+    for root, dirs, files in os.walk(top):
+        dirs[:] = sorted(x for x in dirs if not x.startswith("."))
+        parts = os.path.relpath(root, top).split(os.sep)
+        if "libft.h" in files and "libft" not in parts:
+            out.append(os.path.relpath(os.path.join(root, "libft.h"), top))
+    return out
+
+
+_SUBMAKE = re.compile(
+    r"(?:^|[\s;&|(])(?:\S*/)?g?make\b[^\n]*?"
+    r"(?:\s-[a-zA-Z]*C\s*|\s--directory[= ]?\s*)['\"]?(?:\S*/)?libft/?"
+    r"(?:['\"\s;&|)]|$)"
+    r"|\bcd\s+['\"]?(?:\S*/)?libft/?['\"]?\s*(?:&&|;)\s*(?:\S*/)?g?make\b",
+    re.M)
+
+
+def libft_through_make(directory, libdir, text):
+    """Does `make` run make in libdir? Same method as the push_swap tester:
+    a dry run (-n) that remakes everything (-B) and prints the directories
+    (-w), so $(MAKE) -C $(LIBFT_DIR) is seen with its variables expanded.
+    Falls back to reading the Makefile if the dry run fails."""
+    res = core.run(["make", "-n", "-B", "-w"], cwd=directory, timeout=60,
+                   env={"LC_ALL": "C", "MAKEFLAGS": ""})
+    if res.rc == 0:
+        out = (res.out + res.err).decode("utf-8", "replace")
+        want = os.path.realpath(libdir)
+        for m in re.finditer(r"Entering directory [`'\"]([^'\"\n]+)['\"]",
+                             out):
+            if os.path.realpath(m.group(1)) == want:
+                return True
+        return bool(_SUBMAKE.search(out))
+    recipes = "\n".join(ln for ln in text.splitlines()
+                        if ln.startswith("\t"))
+    return "libft" in text.lower() and bool(
+        re.search(r"\$[({]MAKE[)}]|(?:^|[\s;&|])make\b", recipes))
 
 
 def archive_objects(ws, lib, tag):
@@ -462,7 +541,7 @@ NOT_CALLS = {"GLOBAL_OFFSET_TABLE_", "_GLOBAL_OFFSET_TABLE_"}
 
 
 def check_functions(rep, objs, allowed, label="external functions",
-                    sources=None):
+                    sources=None, soft=False):
     syms = core.external_symbols(objs)
     if syms is None:
         rep.skip(label, "nm not installed")
@@ -471,7 +550,11 @@ def check_functions(rep, objs, allowed, label="external functions",
            and x not in core.COMPILER_ALIASES]
     stems = {os.path.basename(o)[:-2] for o in objs}
     bad += core.written_aliases(syms, allowed, sources, stems=stems)
-    rep.check(f"{label}: only {', '.join(sorted(allowed))}", not bad,
+    name = f"{label}: only {', '.join(sorted(allowed))}"
+    if soft and bad:
+        rep.warn(name, "forbidden: " + ", ".join(bad))
+        return
+    rep.check(name, not bad,
               detail="forbidden: " + ", ".join(bad) if bad else None)
 
 
@@ -486,9 +569,11 @@ def group_functions(rep, ws, build):
               detail=None if objs else "ar x extracted no .o file")
     check_functions(rep, objs, ALLOWED, sources=ws.dir)
     if b.bonus:
+        # no bonus part in v1.1: the extra objects of `make bonus` are only
+        # a WARN
         check_functions(rep, archive_objects(ws, b.bonus, "bonus"),
-                        ALLOWED, label="external functions (bonus)",
-                        sources=ws.dir)
+                        ALLOWED, label="external functions (make bonus)",
+                        sources=ws.dir, soft=True)
 
 
 def run_test_groups(rep, ws, build, args, seed):
@@ -546,8 +631,9 @@ def early_stop(res, records, ids):
         print(core.red(f"test runner stopped early: {res.status()}"))
 
 
-def vg_group(rep, binary, cases, ids, what, max_culprits=5):
-    """One valgrind run for a whole group, then one per case if dirty."""
+def vg_group(rep, binary, cases, ids, what, max_culprits=5, soft=False):
+    """One valgrind run for a whole group, then one per case if dirty.
+    soft: a dirty run is a WARN (part not in the subject)."""
     ids = [i for i in ids if cases[i].direct]
     if not ids:
         return
@@ -585,42 +671,50 @@ def vg_group(rep, binary, cases, ids, what, max_culprits=5):
         lines += ["  " + x for x in err.splitlines()]
     got = res.status() if (res.crashed or res.timed_out) else \
         leaks.describe() + " in the whole group"
+    if soft:
+        rep.warn(name + "  (no bonus part in subject v1.1)",
+                 f"got: {got}\n" + "\n".join(lines))
+        return
     rep.check(name, False, got=got, detail="\n".join(lines))
 
 
 def group_bonus(rep, ws, b, seed, vg_on=False, use_asan=False):
+    """Flags and width. Subject v1.1 has no bonus part: nothing here is a
+    KO, a failure is only a WARN."""
     if not b.mand and not b.bonus:
-        rep.check(f"build {NAME}", False, detail=b.error)
+        rep.skip("bonus tests", f"{NAME} not built")
         return
     if not b.has_bonus_rule:
-        rep.skip("bonus tests", "no bonus rule in the Makefile")
+        rep.skip("bonus tests", "no bonus rule in the Makefile (subject "
+                 "v1.1 has no bonus part)")
         return
     if not b.bonus:
-        rep.check("make bonus", False, detail=b.bonus_error)
+        rep.warn("make bonus fails (no bonus part in subject v1.1)",
+                 b.bonus_error)
         return
     cases = C.bonus_cases(seed)
     asan = asan_sources(ws, b.bonus) if use_asan else None
     binary, err = compile_runner(ws, cases, b.bonus, "bonus", asan)
     if not binary:
-        rep.check("build the bonus test program", False,
-                  detail=core.short_errors(err))
+        rep.warn("bonus test program does not build",
+                 core.short_errors(err))
         return
     if not WRAP_OK:
         rep.skip("per-call leak tracking", NO_WRAP_WHY)
     ids = list(range(len(cases)))
     records, res = run_cases(ws, binary, cases, ids, "bonus")
-    report_group(rep, cases, ids, records)
+    report_group(rep, cases, ids, records, soft=True)
     early_stop(res, records, ids)
     if vg_on:
         vg_group(rep, binary, cases,
                  [i for i in ids if records.get(i, ("x",))[0] == "ok"],
-                 "bonus")
+                 "bonus", soft=True)
 
 
 # --------------------------------------------------------------------------
 
 def main():
-    args = core.parse_args("ft_printf tester (42next)", GROUPS)
+    args = core.parse_args("ft_printf tester (42next, subject v1.1)", GROUPS)
     seed = get_seed(args.extra)
     project = args.project
     if not os.path.isdir(project):

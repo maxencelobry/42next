@@ -1,7 +1,7 @@
 {
   "project": "the_codex",
   "title": "The Codex",
-  "note": "Subject v2.0. Each script runs from a copy of your project root so alchemy/ resolves. The 'Testing ...' lines and the returned strings are compared to the subject; the description lines may differ (warning). Import styles are read from the source (import ... / from ... import ..., absolute + relative in recipes.py). ft_alembic_4 must hit AttributeError on create_earth, ft_kaboom_1 must hit the circular ImportError. Source: only imports of your own modules, no eval() / exec(), sys.path untouched, type hints, flake8, mypy (ft_alembic_4's mypy error is expected: warning only).",
+  "note": "Subject v2.0. Each script runs from a copy of your project root so alchemy/ resolves. A script must run and print what the subject asks it to create (the returned strings are compared to the subject); the title and description lines of the examples are only compared as a warning. Import styles are read from the source (import ... / from ... import ..., absolute + relative in recipes.py). ft_alembic_4 must hit AttributeError on create_earth, ft_kaboom_1 must hit the circular import (caught or not). The whole tree of the subject must be there. Source: only imports of your own modules, no eval() / exec(), sys.path untouched, type hints, flake8, mypy (ft_alembic_4's mypy error is expected: warning only).",
   "defaults": {
     "typed": true,
     "imports": "local",
@@ -36,11 +36,24 @@
       "file": "ft_alembic_0.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and creates fire (the subject's string printed)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Fire element created"
+              ]
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -51,8 +64,10 @@
                 },
                 "Testing create_fire: Fire element created"
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         }
       ],
       "require_imports": [
@@ -68,11 +83,24 @@
       "file": "ft_alembic_1.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and creates water (the subject's string printed)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Water element created"
+              ]
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -83,8 +111,10 @@
                 },
                 "Testing create_water: Water element created"
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         }
       ],
       "require_imports": [
@@ -100,11 +130,24 @@
       "file": "ft_alembic_2.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and creates earth (the subject's string printed)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Earth element created"
+              ]
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -115,8 +158,10 @@
                 },
                 "Testing create_earth: Earth element created"
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         }
       ],
       "require_imports": [
@@ -132,11 +177,24 @@
       "file": "ft_alembic_3.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and creates air (the subject's string printed)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Air element created"
+              ]
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -147,8 +205,10 @@
                 },
                 "Testing create_air: Air element created"
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         }
       ],
       "require_imports": [
@@ -165,6 +225,24 @@
       "tests": [
         {
           "name": "creates air, then create_earth is not reachable (AttributeError)",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "allow_traceback": true,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Air element created"
+              ]
+            },
+            "output": {
+              "type": "regex",
+              "pattern": "AttributeError.*create_earth|has no attribute 'create_earth'"
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
           "mode": "script",
           "cwd": "root",
           "match": {
@@ -192,12 +270,9 @@
                   "subject": "Testing the hidden create_earth: "
                 }
               ]
-            },
-            "output": {
-              "type": "regex",
-              "pattern": "AttributeError.*create_earth"
             }
-          }
+          },
+          "severity": "warn"
         },
         {
           "name": "the alchemy package exposes create_air, not create_earth",
@@ -217,7 +292,8 @@
           "module": "alchemy"
         }
       ],
-      "mypy": "expect_errors"
+      "mypy": "expect_errors",
+      "mypy_expect": ["attr-defined"]
     },
     {
       "id": "alembic_5",
@@ -225,11 +301,24 @@
       "file": "ft_alembic_5.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and creates air (the subject's string printed)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Air element created"
+              ]
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -240,8 +329,10 @@
                 },
                 "Testing create_air: Air element created"
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         }
       ],
       "require_imports": [
@@ -257,11 +348,25 @@
       "file": "ft_distillation_0.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and brews both potions (the subject's string printed)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Strength potion brewed with 'Fire element created' and 'Water element created'",
+                "Healing potion brewed with 'Earth element created' and 'Air element created'"
+              ]
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -273,18 +378,23 @@
                 "Testing strength_potion: Strength potion brewed with 'Fire element created' and 'Water element created'",
                 "Testing healing_potion: Healing potion brewed with 'Earth element created' and 'Air element created'"
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         },
         {
-          "name": "alchemy/potions.py: healing_potion() / strength_potion()",
+          "name": "alchemy/potions.py: healing_potion() / strength_potion(), built from the element files",
           "mode": "module",
           "cwd": "root",
           "load": false,
           "code": [
+            "import ast, os",
             "from alchemy import potions",
             "assert potions.healing_potion() == \"Healing potion brewed with 'Earth element created' and 'Air element created'\", 'healing_potion(): %r' % potions.healing_potion()",
-            "assert potions.strength_potion() == \"Strength potion brewed with 'Fire element created' and 'Water element created'\", 'strength_potion(): %r' % potions.strength_potion()"
+            "assert potions.strength_potion() == \"Strength potion brewed with 'Fire element created' and 'Water element created'\", 'strength_potion(): %r' % potions.strength_potion()",
+            "tree = ast.parse(read_text(os.path.join('alchemy', 'potions.py')))",
+            "assert any(isinstance(n, (ast.Import, ast.ImportFrom)) for n in ast.walk(tree)), 'alchemy/potions.py imports nothing: the potions are brewed with the created elements (subject: \"Anything else useful to access the four fundamental elements\")'"
           ]
         }
       ],
@@ -301,11 +411,25 @@
       "file": "ft_distillation_1.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and brews the strength potion and the heal alias (the subject's string printed)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Strength potion brewed with 'Fire element created' and 'Water element created'",
+                "Healing potion brewed with 'Earth element created' and 'Air element created'"
+              ]
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -317,20 +441,25 @@
                 "Testing strength_potion: Strength potion brewed with 'Fire element created' and 'Water element created'",
                 "Testing heal alias: Healing potion brewed with 'Earth element created' and 'Air element created'"
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         },
         {
-          "name": "alchemy.heal is the package alias of healing_potion",
+          "name": "alchemy.heal is the package alias of healing_potion, the strength potion is reachable from alchemy",
           "mode": "module",
           "cwd": "root",
           "load": false,
           "code": [
             "import alchemy",
             "from alchemy import potions",
-            "assert hasattr(alchemy, 'heal'), 'alchemy.heal missing (alias in alchemy/__init__.py)'",
-            "assert alchemy.heal is potions.healing_potion, 'alchemy.heal must be healing_potion itself'",
-            "assert alchemy.strength_potion() == potions.strength_potion()"
+            "assert callable(getattr(alchemy, 'heal', None)), 'alchemy.heal missing (alias in alchemy/__init__.py)'",
+            "assert alchemy.heal() == potions.healing_potion(), 'alchemy.heal() must brew the healing potion: %r' % alchemy.heal()",
+            "if alchemy.heal is not potions.healing_potion:",
+            "    note('alchemy.heal is not healing_potion itself (an alias, e.g. from .potions import healing_potion as heal)')",
+            "sp = getattr(alchemy, 'strength_potion', None) or getattr(getattr(alchemy, 'potions', None), 'strength_potion', None)",
+            "assert callable(sp) and sp() == potions.strength_potion(), 'the strength potion is not reachable after import alchemy'"
           ]
         }
       ],
@@ -372,11 +501,24 @@
       "file": "ft_transmutation_0.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and transmutes lead into gold (the subject's string printed)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Recipe transmuting Lead to Gold: brew 'Air element created' and 'Strength potion brewed with 'Fire element created' and 'Water element created'' mixed with 'Fire element created'"
+              ]
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -387,8 +529,10 @@
                 },
                 "Testing lead to gold: Recipe transmuting Lead to Gold: brew 'Air element created' and 'Strength potion brewed with 'Fire element created' and 'Water element created'' mixed with 'Fire element created'"
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         }
       ],
       "require_imports": [
@@ -404,11 +548,24 @@
       "file": "ft_transmutation_1.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and transmutes lead into gold (the subject's string printed)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Recipe transmuting Lead to Gold: brew 'Air element created' and 'Strength potion brewed with 'Fire element created' and 'Water element created'' mixed with 'Fire element created'"
+              ]
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -419,8 +576,10 @@
                 },
                 "Testing lead to gold: Recipe transmuting Lead to Gold: brew 'Air element created' and 'Strength potion brewed with 'Fire element created' and 'Water element created'' mixed with 'Fire element created'"
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         }
       ],
       "require_imports": [
@@ -436,11 +595,24 @@
       "file": "ft_transmutation_2.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and transmutes lead into gold (the subject's string printed)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "contains_all",
+              "items": [
+                "Recipe transmuting Lead to Gold: brew 'Air element created' and 'Strength potion brewed with 'Fire element created' and 'Water element created'' mixed with 'Fire element created'"
+              ]
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -451,8 +623,10 @@
                 },
                 "Testing lead to gold: Recipe transmuting Lead to Gold: brew 'Air element created' and 'Strength potion brewed with 'Fire element created' and 'Water element created'' mixed with 'Fire element created'"
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         }
       ],
       "require_imports": [
@@ -468,11 +642,22 @@
       "file": "ft_kaboom_0.py",
       "tests": [
         {
-          "name": "output matches the subject example",
+          "name": "runs and records a light spell (VALID)",
           "mode": "script",
           "cwd": "root",
           "match": {
             "exit_code": 0,
+            "stdout": {
+              "type": "regex",
+              "pattern": "\\bVALID\\b"
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
             "stdout": {
               "type": "lines",
               "items": [
@@ -486,8 +671,10 @@
                   "subject": "Testing record light spell: Spell recorded: Fantasy (Earth, wind and fire - VALID)"
                 }
               ]
-            }
-          }
+            },
+            "allow_traceback": true
+          },
+          "severity": "warn"
         },
         {
           "name": "light spellbook / validator behave as the subject says",
@@ -495,19 +682,25 @@
           "cwd": "root",
           "load": false,
           "code": [
+            "import ast, os",
             "from alchemy.grimoire import light_spellbook, light_validator",
             "allowed = light_spellbook.light_spell_allowed_ingredients()",
             "assert type(allowed) is list and allowed and all(type(x) is str for x in allowed), 'allowed ingredients must be a list of str: %r' % (allowed,)",
             "ok = light_validator.validate_ingredients('Some ' + allowed[0].upper() + ' dust')",
             "assert type(ok) is str and 'VALID' in ok and 'INVALID' not in ok, 'an allowed ingredient (any case) must be VALID: %r' % ok",
-            "assert allowed[0].upper() in ok, 'the result should contain the ingredients: %r' % ok",
+            "assert allowed[0].lower() in ok.lower(), 'the result should contain the ingredients: %r' % ok",
             "bad = light_validator.validate_ingredients('qqq zzz')",
-            "assert 'INVALID' in bad, 'no allowed ingredient must be INVALID: %r' % bad",
+            "assert type(bad) is str and 'INVALID' in bad, 'no allowed ingredient must be INVALID: %r' % bad",
             "rec = light_spellbook.light_spell_record('Fantasy', allowed[0])",
             "rej = light_spellbook.light_spell_record('Nope', 'qqq zzz')",
-            "assert 'recorded' in rec.lower(), 'a valid spell should be recorded: %r' % rec",
-            "assert 'rejected' in rej.lower(), 'an invalid spell should be rejected: %r' % rej",
-            "assert rec != rej"
+            "assert type(rec) is str and type(rej) is str and rec != rej, 'a valid and an invalid spell must give different strings: %r / %r' % (rec, rej)",
+            "if 'recorded' not in rec.lower() or 'rejected' not in rej.lower():",
+            "    note('the subject says the string indicates whether the spell is recorded or rejected: %r / %r' % (rec, rej))",
+            "def names(rel):",
+            "    tree = ast.parse(read_text(os.path.join('alchemy', 'grimoire', rel)))",
+            "    return {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}",
+            "assert 'validate_ingredients' in names('light_spellbook.py'), 'light_spell_record(): the decision comes from validate_ingredients() (subject)'",
+            "assert 'light_spell_allowed_ingredients' in names('light_validator.py'), 'validate_ingredients(): the allowed ingredients come from the spellbook (subject)'"
           ]
         },
         {
@@ -543,6 +736,18 @@
           "cwd": "root",
           "match": {
             "allow_traceback": true,
+            "output": {
+              "type": "regex",
+              "pattern": "circular import|partially initialized module"
+            }
+          }
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "script",
+          "cwd": "root",
+          "match": {
+            "allow_traceback": true,
             "stdout": {
               "type": "lines",
               "tail": false,
@@ -557,12 +762,9 @@
                   "subject": "Test import now - THIS WILL RAISE AN UNCAUGHT EXCEPTION"
                 }
               ]
-            },
-            "output": {
-              "type": "regex",
-              "pattern": "ImportError.*(circular import|partially initialized)"
             }
-          }
+          },
+          "severity": "warn"
         }
       ],
       "require_imports": [
@@ -584,9 +786,20 @@
           "load": false,
           "code": [
             "import os",
-            "want = ['alchemy/__init__.py', 'alchemy/elements.py', 'alchemy/potions.py', 'alchemy/transmutation/__init__.py', 'alchemy/transmutation/recipes.py', 'alchemy/grimoire/__init__.py', 'alchemy/grimoire/light_spellbook.py', 'alchemy/grimoire/light_validator.py', 'alchemy/grimoire/dark_spellbook.py', 'alchemy/grimoire/dark_validator.py', 'elements.py']",
+            "want = ['alchemy/__init__.py', 'alchemy/elements.py', 'alchemy/potions.py', 'alchemy/transmutation/__init__.py', 'alchemy/transmutation/recipes.py', 'alchemy/grimoire/__init__.py', 'alchemy/grimoire/light_spellbook.py', 'alchemy/grimoire/light_validator.py', 'alchemy/grimoire/dark_spellbook.py', 'alchemy/grimoire/dark_validator.py', 'elements.py', 'ft_alembic_0.py', 'ft_alembic_1.py', 'ft_alembic_2.py', 'ft_alembic_3.py', 'ft_alembic_4.py', 'ft_alembic_5.py', 'ft_distillation_0.py', 'ft_distillation_1.py', 'ft_kaboom_0.py', 'ft_kaboom_1.py', 'ft_transmutation_0.py', 'ft_transmutation_1.py', 'ft_transmutation_2.py']",
             "missing = [f for f in want if not os.path.isfile(f)]",
             "assert not missing, 'missing: ' + ', '.join(missing)"
+          ]
+        },
+        {
+          "name": "alchemy/elements.py: create_earth() / create_air() return the subject's strings",
+          "mode": "module",
+          "cwd": "root",
+          "load": false,
+          "code": [
+            "from alchemy import elements",
+            "assert elements.create_earth() == 'Earth element created', 'create_earth(): %r' % elements.create_earth()",
+            "assert elements.create_air() == 'Air element created', 'create_air(): %r' % elements.create_air()"
           ]
         }
       ],

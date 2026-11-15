@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""42next tester for get_next_line (Common Core).
+"""42next tester for get_next_line (Common Core, subject v1.3).
+
+v1.3 has no bonus part: the *_bonus files are tested only when they exist,
+and a failure there is a WARN, never a KO.
 
 Every scenario is a separate process (a crash or an infinite loop only fails
 that scenario). The runner is linked with -Wl,--wrap=read so the tests can
@@ -49,7 +52,8 @@ GROUPS = [("files", "required files and prototype"),
                    "as possible"),
           ("leaks", "memory: valgrind (or ASan) with BUFFER_SIZE 1, 42, "
                     "10000000"),
-          ("bonus", "bonus files: several fd at the same time (if present)")]
+          ("bonus", "bonus files: several fd at the same time (if present; "
+                    "not in subject v1.3: WARN only)")]
 
 
 def bs_name(bs):
@@ -322,14 +326,19 @@ class Shown:
             self.hung.append(label)
         return False
 
-    def ko(self, name, detail):
+    def ko(self, name, detail, soft=False):
+        """soft: the part is not in the subject (bonus): a WARN."""
+        if soft:
+            self.rep.warn(name + "  (no bonus part in subject v1.3)",
+                          detail)
+            return
         if self.n >= MAX_KO and not self.rep.verbose:
             self.hidden += 1
             return
         self.n += 1
         self.rep.check(name, False, detail=detail)
 
-    def close(self):
+    def close(self, soft=False):
         if self.hidden:
             if self.rep.current is not None:
                 self.rep.current[2] += self.hidden
@@ -337,12 +346,15 @@ class Shown:
                            "this group (use --verbose to see all)"))
         if self.not_run:
             more = len(self.hung) - 8
-            self.rep.check(
-                f"group stopped after {len(self.hung)} timeouts: "
-                f"{self.not_run} more test(s) not run", False,
-                detail="tests that hung:\n"
-                + "\n".join("  " + h for h in self.hung[:8])
-                + (f"\n  ... and {more} more" if more > 0 else ""))
+            name = (f"group stopped after {len(self.hung)} timeouts: "
+                    f"{self.not_run} more test(s) not run")
+            detail = ("tests that hung:\n"
+                      + "\n".join("  " + h for h in self.hung[:8])
+                      + (f"\n  ... and {more} more" if more > 0 else ""))
+            if soft:
+                self.rep.warn(name, detail)
+            else:
+                self.rep.check(name, False, detail=detail)
         self.n = self.hidden = self.not_run = 0
         self.hung = []
 
@@ -350,10 +362,14 @@ class Shown:
 def check_build(ctx, bs, bonus=False, asan=False):
     if ctx.binary(bs, bonus, asan):
         return True
-    ctx.rep.check(f"compile with {bs_name(bs)}" + (" (bonus)" if bonus
-                                                   else "")
-                  + (" -fsanitize=address" if asan else ""), False,
-                  detail=ctx.errors.get((bs, bonus, asan)))
+    name = (f"compile with {bs_name(bs)}" + (" (bonus)" if bonus else "")
+            + (" -fsanitize=address" if asan else ""))
+    if bonus:
+        # no bonus part in v1.3
+        ctx.rep.warn(name + " fails (no bonus part in subject v1.3)",
+                     ctx.errors.get((bs, bonus, asan)))
+    else:
+        ctx.rep.check(name, False, detail=ctx.errors.get((bs, bonus, asan)))
     return False
 
 
@@ -483,10 +499,17 @@ def group_functions(rep, ws):
         present = [f for f in files if os.path.isfile(ws.path(f))]
         if tag == "bonus" and not present:
             continue
+
+        def check(name, ok, detail=None, tag=tag):
+            # no bonus part in v1.3: the bonus files only get a WARN
+            if tag == "bonus" and not ok:
+                rep.warn(name + "  (no bonus part in subject v1.3)", detail)
+            else:
+                rep.check(name, ok, detail=detail)
         objs, errors = compile_objects(ws, files, tag)
         if errors:
-            rep.check(f"{tag} files compile with -c", False,
-                      detail="\n".join(errors))
+            check(f"{tag} files compile with -c", False,
+                  detail="\n".join(errors))
         if not objs:
             continue
         syms = core.external_symbols(objs)
@@ -498,14 +521,14 @@ def group_functions(rep, ws):
             bad += core.written_aliases(
                 syms, ALLOWED, ws.dir,
                 stems={f[:-2] for f in present if f.endswith(".c")})
-            rep.check(f"{tag}: external functions only read, malloc, free",
-                      not bad, detail=("forbidden: " + ", ".join(bad))
-                      if bad else None)
+            check(f"{tag}: external functions only read, malloc, free",
+                  not bad, detail=("forbidden: " + ", ".join(bad))
+                  if bad else None)
         glob, fstat, _ = nm_data_symbols(objs)
-        rep.check(f"{tag}: no global variable", not glob and not fstat,
-                  detail=("global: " + ", ".join(
-                      glob + [f"{x} (static at file scope)" for x in fstat]))
-                  if glob or fstat else None)
+        check(f"{tag}: no global variable", not glob and not fstat,
+              detail=("global: " + ", ".join(
+                  glob + [f"{x} (static at file scope)" for x in fstat]))
+              if glob or fstat else None)
         libft = []
         for f in present:
             with open(ws.path(f), encoding="utf-8", errors="replace") as fh:
@@ -514,9 +537,9 @@ def group_functions(rep, ws):
                 libft.append(f)
         if os.path.isdir(ws.path("libft")):
             libft.append("libft/ folder")
-        rep.check(f"{tag}: libft not used", not libft,
-                  detail=("libft used in: " + ", ".join(libft))
-                  if libft else None)
+        check(f"{tag}: libft not used", not libft,
+              detail=("libft used in: " + ", ".join(libft))
+              if libft else None)
 
 
 def group_files(rep, ws):
@@ -842,8 +865,8 @@ def group_leaks(ctx):
 
     results = parallel(one, jobs)
     # report in the same order as before
-    for (label, bs, _, margs, _), (res, _, info, leaks) in zip(jobs,
-                                                               results):
+    for (label, bs, bonus, margs, _), (res, _, info, leaks) in zip(jobs,
+                                                                   results):
         if not use_vg and not WRAP_OK:
             # ASan without leak detection and no malloc tracking
             label = label.replace("no leak, ", "")
@@ -855,25 +878,25 @@ def group_leaks(ctx):
         to_eof = margs[0] != "badfd"
         if use_vg:
             if res is not None and (res.timed_out or res.crashed):
-                shown.ko(label, res.status())
+                shown.ko(label, res.status(), soft=bonus)
                 continue
             if res is None or leaks is None:
                 continue
             nbytes, nblocks = still_reachable(leaks) if to_eof else (0, 0)
             if not leaks.clean:
                 shown.ko(label, leaks.describe() + "\n"
-                         + leaks.first_error())
+                         + leaks.first_error(), soft=bonus)
             elif nbytes:
                 shown.ko(label, f"{nbytes} byte(s) in {nblocks} block(s) "
                          "still reachable at exit: memory of get_next_line "
                          "never freed (a static stash kept after the end of "
-                         "file or after an error?)")
+                         "file or after an error?)", soft=bonus)
             else:
                 rep.check(label, True)
         else:
             prob = run_problem(res, bs) or (to_eof and leak_problem(info))
             if prob:
-                shown.ko(label, prob)
+                shown.ko(label, prob, soft=bonus)
             else:
                 rep.check(label, True)
     shown.close()
@@ -924,12 +947,12 @@ def group_bonus(ctx):
     ws = ctx.ws
     present = [f for f in BONUS if os.path.isfile(ws.path(f))]
     if not present:
-        rep.skip("bonus", "no *_bonus file")
+        rep.skip("bonus", "no *_bonus file (subject v1.3 has no bonus part)")
         return
     missing = [f for f in BONUS if f not in present]
     if missing:
-        rep.check("bonus files", False,
-                  detail="missing: " + ", ".join(missing))
+        rep.warn("bonus files incomplete (no bonus part in subject v1.3)",
+                 "missing: " + ", ".join(missing))
         return
     shown = Shown(ctx)
     sets = [("three_lines", "text", "only_newlines"),
@@ -956,10 +979,11 @@ def group_bonus(ctx):
                 if not bad and not prob:
                     bad = leak_problem(info)
                 if prob or bad:
-                    shown.ko(label, "\n".join(x for x in (prob, bad) if x))
+                    shown.ko(label, "\n".join(x for x in (prob, bad) if x),
+                             soft=True)
                 else:
                     rep.check(label, True)
-    shown.close()
+    shown.close(soft=True)
 
 
 # --------------------------------------------------------------------------
@@ -979,7 +1003,8 @@ SECTION_GROUPS = {"norminette": "norm",
 
 
 def main():
-    args = core.parse_args("get_next_line tester (42next)", GROUPS)
+    args = core.parse_args("get_next_line tester (42next, subject v1.3)",
+                           GROUPS)
     project = args.project
     if not os.path.isdir(project):
         print(core.red(f"project directory not found: {project}"))

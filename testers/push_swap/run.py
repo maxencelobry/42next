@@ -55,7 +55,8 @@ GROUPS = [
     ("disorder", "Low / medium / high disorder inputs + adaptive regimes"),
     ("strategies", "Selectors --simple --medium --complex --adaptive"),
     ("bench", "--bench output: format, values, stderr only"),
-    ("checker", "Official checker cross-check + bonus checker if present"),
+    ("checker", "Official checker cross-check + bonus checker if present "
+                "(no bonus in v1.2: WARN only)"),
     ("leaks", "Valgrind: normal runs and error paths"),
     ("perf",
      "Free perf run (--size N --runs N [--strategy X] [--disorder D])"),
@@ -294,9 +295,12 @@ def libft_through_make(directory, text):
 def build(ctx, with_checks):
     if with_checks:
         ctx.rep.section("makefile")
-        ok = core.check_makefile(ctx.rep, ctx.ws.dir, "push_swap",
-                                 bonus=True)
+        # v1.2 has no bonus part: `make bonus` is built (for the checker
+        # tests, WARN only) but not checked
+        ok = core.check_makefile(ctx.rep, ctx.ws.dir, "push_swap")
         text = core.makefile_text(ctx.ws.dir) or ""
+        if "bonus" in core.makefile_targets(text):
+            run(["make", "bonus"], cwd=ctx.ws.dir, timeout=300)
         if os.path.isdir(ctx.ws.path("libft")):
             has_mk = os.path.isfile(ctx.ws.path("libft", "Makefile"))
             uses = has_mk and libft_through_make(ctx.ws.dir, text)
@@ -333,13 +337,21 @@ GLOBAL_IGNORE = {"__dso_handle", "__TMC_END__", "__bss_start", "_edata",
 def g_functions(ctx, binaries):
     rep = ctx.rep
     rep.section("functions")
-    for b in binaries:
-        core.check_functions(rep, [b], ALLOWED,
-                             label=f"{os.path.basename(b)}: "
-                             "external functions", sources=ctx.ws.dir)
+    core.check_functions(rep, binaries[:1], ALLOWED,
+                         label=f"{os.path.basename(binaries[0])}: "
+                         "external functions", sources=ctx.ws.dir)
     if not core.have("nm"):
         return
-    for b in binaries:
+    for b in binaries[1:]:
+        # a bonus checker: no bonus part in v1.2, so only a WARN
+        syms = core.external_symbols([b]) or []
+        bad = [s for s in syms if s not in ALLOWED
+               and s not in core.COMPILER_ALIASES]
+        if bad:
+            rep.warn(f"{os.path.basename(b)}: external functions outside "
+                     "read write malloc free exit (no bonus part in subject "
+                     "v1.2)", "forbidden: " + ", ".join(bad))
+    for b in binaries[:1]:
         res = run(["nm", b], timeout=30)
         glob, stat = [], []
         for line in res.out.decode("utf-8", "replace").splitlines():
@@ -386,21 +398,45 @@ def g_readme(ctx):
               or low.count("algorithm") >= 2,
               detail="subject: detailed explanation + justification of "
                      "the algorithms selected")
+    # 6.3.3: "You must document in your repository (e.g., README.md) the
+    # rationale for your thresholds": another .md of the repository counts
+    docs = low + "\n" + other_docs(ctx.ws.project)
     rep.check("documents the adaptive strategy + disorder thresholds",
-              "adaptive" in low and "disorder" in low,
+              "adaptive" in docs and "disorder" in docs,
               detail="subject 6.3.3: rationale for the thresholds, internal "
                      "techniques per regime")
-    if not re.search(r"0[.,]2|20 ?%", low) \
-            or not re.search(r"0[.,]5|50 ?%", low):
+    if not re.search(r"0[.,]2|20 ?%", docs) \
+            or not re.search(r"0[.,]5|50 ?%", docs):
         rep.warn("README does not show the 0.2 / 0.5 thresholds explicitly")
-    if not re.search(r"o\((n|log)", low):
+    if not re.search(r"o\((n|log)", docs):
         rep.warn("no complexity bound (O(...)) found in README",
                  "subject: brief complexity argument (upper bounds) for "
                  "time and space")
-    if not re.search(r"contribut", low):
-        rep.warn("no 'contribution' section",
-                 "subject: the README must document each learner's "
-                 "contributions")
+    contrib = re.search(r"contribut|who did what|r[ée]partition|"
+                        r"division of (the )?(work|labou?r)|"
+                        r"split of (the )?work|work split", low)
+    rep.check("README documents each learner's contributions",
+              bool(contrib), detail=None if contrib else
+              'subject 6.1: "The repository must clearly indicate both '
+              'learners\' contributions in the README.md file" (add e.g. a '
+              '"Contributions" section)')
+
+
+def other_docs(project):
+    """Lower-case text of the .md / .txt files of the repository other
+    than README.md (libft/ excluded)."""
+    parts = []
+    for root, dirs, files in os.walk(project):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "libft"]
+        for f in files:
+            if f.lower().endswith((".md", ".txt")) and f != "README.md":
+                try:
+                    with open(os.path.join(root, f), encoding="utf-8",
+                              errors="replace") as fh:
+                        parts.append(fh.read(200000).lower())
+                except OSError:
+                    pass
+    return "\n".join(parts)
 
 
 def g_repo(ctx):
@@ -557,13 +593,20 @@ def g_identity(ctx):
             out.problems.append(f"already sorted but printed {out.nops} op(s)")
         rep.check(f"--{st} on sorted 5: no output", out.ok,
                   detail=None if out.ok else out.detail(ctx))
+    # a selector is a parameter: the "no parameters" rule does not cover it.
+    # Nothing to sort, so no operation; "Error" on stderr is up to the
+    # evaluator
     res = ctx.ps(["--simple"])
-    rep.check("selector alone (--simple): no output",
-              not res.out and not res.err and not res.timed_out
-              and not res.crashed,
-              detail=None if not res.out and not res.err else
-              f"input: ./push_swap --simple\nstdout {core.crepr(res.out, 40)} "
-              f"stderr {core.crepr(res.err, 40)}")
+    said = (f"input: ./push_swap --simple\nstdout {core.crepr(res.out, 40)} "
+            f"stderr {core.crepr(res.err, 40)}")
+    bad = res.out or res.timed_out or res.crashed
+    rep.check("selector alone (--simple): no operation printed", not bad,
+              detail=(said + ("\n" + res.status() if res.timed_out
+                              or res.crashed else "")) if bad else None)
+    if not bad and res.err:
+        rep.warn("selector alone (--simple): writes on stderr",
+                 said + "\n(not specified by the subject: an empty stack "
+                 "is already sorted, \"Error\" is up to the evaluator)")
 
 
 # --------------------------------------------------------------------------
@@ -777,6 +820,19 @@ def parse_class(text):
     return None
 
 
+# n log n < n√n < n²: a method in a smaller class is also in the bigger ones
+CLASS_RANK = {"nlogn": 0, "nsqrtn": 1, "n2": 2}
+
+
+def adaptive_class_problem(got, regime):
+    """6.3.3 gives an upper bound per regime ("must run in O(...)"):
+    announcing the regime class is right, a tighter class still meets the
+    bound ("warn"), a bigger one breaks it ("ko"). None when equal."""
+    if got == regime:
+        return None
+    return "warn" if CLASS_RANK[got] < CLASS_RANK[regime] else "ko"
+
+
 class Bench:
     def __init__(self, err):
         self.text = err.decode("utf-8", "replace")
@@ -848,8 +904,16 @@ def check_bench(ctx, nums, flags, expect_name, expect_class, tag):
             warns.append("could not read a complexity class in "
                          f"{b.strategy!r}")
         elif expect_class and b.klass != expect_class:
-            probs.append(f"class {b.strategy!r}: expected "
-                         f"{sim.CLASS_NAMES[expect_class]} here")
+            why = adaptive_class_problem(b.klass, expect_class) \
+                if expect_name == "Adaptive" else None
+            if expect_name != "Adaptive" or why == "ko":
+                probs.append(f"class {b.strategy!r}: expected "
+                             f"{sim.CLASS_NAMES[expect_class]} here")
+            else:
+                warns.append(f"class {b.strategy!r}: tighter than the "
+                             f"{sim.CLASS_NAMES[expect_class]} bound of "
+                             "this disorder regime (fine for the bound; the "
+                             "subject example shows the regime's class)")
     if b.total is None:
         probs.append('no "total_ops: N" line')
     elif b.total != out.nops:
@@ -1024,12 +1088,21 @@ def g_disorder(ctx):
             if d == 0:
                 continue
             want = sim.regime(d)
-            rep.check(f"{name}: adaptive announces {sim.CLASS_NAMES[want]}",
-                      b.klass == want,
-                      detail=None if b.klass == want else
-                      f"input: {ctx.cmd(out.argv)}\nbench said: {b.strategy}\n"
-                      "subject 6.3.3: the adaptive method must match the "
-                      "disorder regime")
+            why = adaptive_class_problem(b.klass, want)
+            what = f"{name}: adaptive announces {sim.CLASS_NAMES[want]}"
+            said = (f"input: {ctx.cmd(out.argv)}\nbench said: {b.strategy}")
+            if why == "warn":
+                rep.warn(what + f" (it says {sim.CLASS_NAMES[b.klass]})",
+                         said + "\nsubject 6.3.3: the method of this regime "
+                         f"must run in {sim.CLASS_NAMES[want]}; a tighter "
+                         "class meets that bound, the evaluator judges the "
+                         "design")
+                continue
+            rep.check(what, why is None,
+                      detail=None if why is None else
+                      said + "\nsubject 6.3.3: the method of this regime "
+                      f"must run in {sim.CLASS_NAMES[want]}, "
+                      f"{sim.CLASS_NAMES[b.klass]} is above that bound")
         second = cells[1] if len(cells) > 1 else ""
         rep.info(f"{target:>10.2f}{cells[0]:>12}{second:>12}"
                  f"   {' / '.join(classes)}")
@@ -1097,7 +1170,14 @@ def g_checker(ctx):
 
 
 def test_bonus_checker(ctx, chk):
+    """No bonus part in v1.2: a ./checker is tested, a failure is a WARN."""
     rep = ctx.rep
+
+    def soft(name, ok, detail=None):
+        if ok:
+            rep.check(name, True)
+        else:
+            rep.warn(name + "  (no bonus part in subject v1.2)", detail)
 
     def call(args, stdin):
         return run([chk, *args], cwd=ctx.ws.dir, stdin=stdin,
@@ -1116,8 +1196,8 @@ def test_bonus_checker(ctx, chk):
                 probs.append(f"stderr: expected {core.crepr(err)}, "
                              f"got {core.crepr(res.err)}")
         cmd = f"printf {shlex.quote(stdin)} | ./checker " + shlex.join(args)
-        rep.check(f"bonus checker: {name}", not probs,
-                  detail=None if not probs else cmd + "\n" + "\n".join(probs))
+        soft(f"bonus checker: {name}", not probs,
+             detail=None if not probs else cmd + "\n" + "\n".join(probs))
 
     expect("sa sorts 2 1 -> OK", ["2", "1"], "sa\n", b"OK\n", b"")
     expect("no op on sorted -> OK", ["1", "2", "3"], "", b"OK\n", b"")
@@ -1137,17 +1217,17 @@ def test_bonus_checker(ctx, chk):
     out = sort_run(ctx, nums)
     if out.ok:
         res = call([str(n) for n in nums], out.res.out)
-        rep.check("bonus checker: push_swap 100 output -> OK",
-                  res.out == b"OK\n",
-                  got=core.crepr(res.out + res.err))
+        soft("bonus checker: push_swap 100 output -> OK",
+             res.out == b"OK\n",
+             detail="got: " + core.crepr(res.out + res.err))
     if ctx.quick:
         return
     res, leaks = core.valgrind([chk, "3", "2", "1"], cwd=ctx.ws.dir,
                                stdin=b"sa\nrra\n", timeout=60)
     if leaks:
-        rep.check("bonus checker: no leak", leaks.clean,
-                  detail=None if leaks.clean else leaks.describe() + "\n"
-                  + leaks.first_error())
+        soft("bonus checker: no leak", leaks.clean,
+             detail=None if leaks.clean else leaks.describe() + "\n"
+             + leaks.first_error())
 
 
 # --------------------------------------------------------------------------

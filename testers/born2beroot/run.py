@@ -163,11 +163,26 @@ def group_signature(rep, project, opts):
     rep.check("signature.txt at the root of the repository", True)
     text = data.decode("utf-8", "replace")
     sig = text.strip()
-    rep.check("signature.txt contains only a sha1 (40 hex characters)",
-              re.fullmatch(r"[0-9a-fA-F]{40}", sig) is not None,
+    # "paste the signature of your machine's virtual disk": a sha1 must be
+    # there; extra text around it (certUtil / sha1sum output) is not
+    # forbidden, only harder to compare by eye
+    found = re.findall(r"(?<![0-9a-fA-F])[0-9a-fA-F]{40}(?![0-9a-fA-F])",
+                       text)
+    rep.check("signature.txt contains a sha1 (40 hex characters)",
+              bool(found),
               expected="6e657c4619944be17df3c31faa030c25e43e40af",
-              got=core.crepr(data, 120))
-    if sig != sig.lower() and re.fullmatch(r"[0-9a-fA-F]{40}", sig):
+              got=None if found else core.crepr(data, 120))
+    if not found:
+        return
+    if len(found) > 1:
+        rep.warn(f"signature.txt holds {len(found)} sha1 values",
+                 "the first one is compared with the VM disk")
+    elif sig != found[0]:
+        rep.warn("signature.txt has other text around the sha1",
+                 "the subject example is the bare sha1: "
+                 + core.crepr(data, 120))
+    sig = found[0]
+    if sig != sig.lower():
         rep.warn("signature in uppercase (certUtil output?)",
                  "sha1sum prints lowercase; graders compare by eye")
     if "\r" in text:
@@ -228,8 +243,10 @@ def group_repo(rep, project):
         p = os.path.join(project, f)
         if os.path.isfile(p) and os.path.getsize(p) > 10 * 1024 * 1024:
             big.append(f"{f} ({human(os.path.getsize(p))})")
-    rep.check("no big file (> 10 MB)", not big,
-              detail=", ".join(big) if big else None)
+    if big:
+        # only the VM itself is FORBIDDEN (checked above by extension)
+        rep.warn("big file(s) (> 10 MB) in the repository",
+                 ", ".join(big) + " (a VM disk under another name?)")
     # "You only need to submit the expected README.md file, and a
     # signature.txt file": other files are not forbidden (the VM is, above)
     extra = sorted(f for f in files if f not in ALLOWED)

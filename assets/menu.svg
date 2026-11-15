@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="364" viewBox="0 0 760 364" role="img" aria-label="42next">
+<rect width="760" height="364" rx="12" fill="#0a1628"/>
+<rect width="760" height="36" rx="12" fill="#0f2142"/><rect y="24" width="760" height="12" fill="#0f2142"/>
+<circle cx="22" cy="18" r="6" fill="#f87171" opacity="0.85"/>
+<circle cx="42" cy="18" r="6" fill="#fbbf24" opacity="0.85"/>
+<circle cx="62" cy="18" r="6" fill="#4ade80" opacity="0.85"/>
+<text x="380.0" y="23" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="13" fill="#7088b0">42next</text>
+<text x="24" y="58" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"><tspan fill="#4f9dff" font-weight="700"> 42next</tspan><tspan fill="#7088b0">  ·  C</tspan></text>
+<line x1="20" y1="75" x2="740" y2="75" stroke="#1d3a6b"/>
+<text x="24" y="102" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"><tspan fill="#dbe6ff" font-weight="700"> libft</tspan><tspan fill="#7088b0">  ~/42/libft</tspan></text>
+<text x="24" y="124" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"></text>
+<rect x="14" y="130" width="732" height="22" rx="5" fill="#12306b"/>
+<text x="24" y="146" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"><tspan fill="#4f9dff"> ▸ </tspan><tspan fill="#7088b0">1 </tspan><tspan fill="#4f9dff" font-weight="700">Run everything</tspan></text>
+<text x="24" y="168" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"><tspan fill="#7088b0">   2 </tspan><tspan fill="#dbe6ff">Quick check               </tspan><tspan fill="#7088b0">no valgrind, no big benchmarks</tspan></text>
+<text x="24" y="190" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"><tspan fill="#7088b0">   3 </tspan><tspan fill="#dbe6ff">Pick a part / a function  </tspan><tspan fill="#7088b0">53 available</tspan></text>
+<text x="24" y="212" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"><tspan fill="#7088b0">   4 </tspan><tspan fill="#dbe6ff">Pick several</tspan></text>
+<text x="24" y="234" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"><tspan fill="#7088b0">   5 </tspan><tspan fill="#dbe6ff">Clean the project         </tspan><tspan fill="#7088b0">__pycache__, .mypy_cache, .o, a.out</tspan></text>
+<text x="24" y="256" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"><tspan fill="#7088b0">   6 </tspan><tspan fill="#dbe6ff">Back to projects</tspan></text>
+<text x="24" y="278" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"></text>
+<line x1="20" y1="295" x2="740" y2="295" stroke="#1d3a6b"/>
+<text x="24" y="322" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="14" xml:space="preserve"><tspan fill="#7088b0"> ↑↓ move · enter select · 1-9 jump · q back</tspan></text>
+</svg>

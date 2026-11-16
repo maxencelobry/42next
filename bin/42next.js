@@ -685,6 +685,25 @@ function removeStaleLocks(gitDir) {
   walk(path.join(gitDir, 'refs'));
 }
 
+// Short names for installs made by install.sh before they existed: 42n,
+// and 42 unless another tool (42-cli...) already uses that name.
+function shortcuts() {
+  if (process.platform === 'win32') return;
+  const bin = path.join(HOME, '.local', 'bin');
+  const main = path.join(bin, '42next');
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return ''; } };
+  if (!real(main) || real(main) !== real(path.join(ROOT, 'bin', '42next.js'))) return;
+  let target;
+  try { target = fs.readlinkSync(main); } catch { return; }
+  const onPath = (n) => (process.env.PATH || '').split(path.delimiter).some((d) => d && exists(d, n));
+  for (const name of ['42n', '42']) {
+    const p = path.join(bin, name);
+    try { fs.lstatSync(p); continue; } catch { /* free */ }
+    if (name === '42' && onPath('42')) continue;
+    try { fs.symlinkSync(target, p); console.log(dim(`shortcut added: ${name} (same as 42next)`)); } catch { /* read-only */ }
+  }
+}
+
 // Older installs lived in ~/42next. Move them to ~/.local/share/42next (out of
 // sight), point the ~/.local/bin/42next link there and run again from there.
 // Only for an install made by install.sh: a clone elsewhere is never moved.
@@ -720,6 +739,7 @@ function migrate() {
 // ---------------------------------------------------------------- CLI
 
 const HELP = `${bold('42next')} - tester for 42 projects. Run it in your project folder.
+Shorter: 42n (and 42 when no other tool uses that name) is the same command.
 
   42next                   menu (finds the project around the current folder)
   42next <folder>          menu on that folder
@@ -761,6 +781,7 @@ async function main() {
   const words = args.filter((a) => !a.startsWith('-'));
   const cwd = process.cwd();
   migrate();
+  shortcuts();
   if (flags.includes('-h') || flags.includes('--help') || words[0] === 'help') return console.log(HELP);
   if (words[0] === 'update') return update(true);
   update();

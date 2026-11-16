@@ -40,7 +40,16 @@ fi
 mkdir -p "$bin"
 chmod +x "$dir/bin/42next.js" "$dir/bin/clean-pc.sh"
 ln -sf "$dir/bin/42next.js" "$bin/42next"
-echo "42next installed: run it in a project folder with  42next"
+# shortcuts: 42n always, 42 unless another tool (42-cli...) already has it
+ln -sf "$dir/bin/42next.js" "$bin/42n"
+short="42n"
+if [ "$(readlink "$bin/42" 2>/dev/null)" = "$dir/bin/42next.js" ]; then
+	short="42n or 42"
+elif [ ! -e "$bin/42" ] && [ ! -L "$bin/42" ] && ! command -v 42 >/dev/null 2>&1; then
+	ln -s "$dir/bin/42next.js" "$bin/42"
+	short="42n or 42"
+fi
+echo "42next installed: run it in a project folder with  42next  (or $short)"
 
 case ":$PATH:" in
 	*":$bin:"*) ;;

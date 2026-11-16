@@ -48,7 +48,8 @@ pipx install norminette flake8 mypy
 Uninstall:
 
 ```sh
-rm -rf ~/.local/share/42next ~/.local/bin/42next ~/.cache/42next-*
+find ~/.local/bin -lname '*42next*' -delete   # 42next, 42n, 42 (only ours)
+rm -rf ~/.local/share/42next ~/.cache/42next-*
 ```
 
 </details>
@@ -63,6 +64,9 @@ rm -rf ~/.local/share/42next ~/.local/bin/42next ~/.cache/42next-*
 ```
 
 Run it in your project folder, in `ex3/`, or in a parent folder.
+
+Shorter: `42n` is the same command, and `42` too when no other tool (like
+42-cli) already uses that name.
 
 <details>
 <summary><b>All commands</b></summary>

@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "Zero-config tester for 42 projects: libft, ft_printf, get_next_line, push_swap, Born2beRoot, NetPractice, Inception, A-Maze-ing, Pacman and the Python projects.",
   "bin": {
-    "42next": "bin/42next.js"
+    "42next": "bin/42next.js",
+    "42n": "bin/42next.js"
   },
   "engines": {
     "node": ">=18"

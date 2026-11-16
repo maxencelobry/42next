@@ -366,6 +366,16 @@ def note_missing(tool):
     MISSING.add(tool)
 
 
+_PY_LIBS: set = set()
+
+
+def note_missing_lib(package):
+    """A Python library (pip name) the interpreter running the tests cannot
+    import: the end of the run says how to install it."""
+    MISSING.add(package)
+    _PY_LIBS.add(package)
+
+
 def _externally_managed():
     """pip install --user is refused (PEP 668: Ubuntu 23.04+, Debian 12+)."""
     try:
@@ -380,7 +390,9 @@ def install_hints(tools):
     """The commands that install `tools` on this machine, one per line."""
     tools = sorted(tools)
     py = [t for t in tools if t in _PY_TOOLS]
-    native = [t for t in tools if t not in _PY_TOOLS and t != "docker"]
+    libs = [t for t in tools if t in _PY_LIBS]
+    native = [t for t in tools if t not in _PY_TOOLS and t not in libs
+              and t != "docker"]
     lines = []
     if sys.platform == "darwin":
         if "valgrind" in native:
@@ -415,6 +427,13 @@ def install_hints(tools):
                          + "pipx install " + " ".join(py))
         else:
             lines.append("python3 -m pip install --user " + " ".join(py))
+    if libs:
+        pip = "python3 -m pip install " + " ".join(libs)
+        if sys.prefix != sys.base_prefix:
+            lines.append(pip + "   (into the active virtual environment)")
+        else:
+            lines.append("python3 -m venv .venv && . .venv/bin/activate && "
+                         + pip + "   (then run the tests from that shell)")
     if "docker" in tools:
         lines.append("docker: https://docs.docker.com/engine/install/")
     return lines
@@ -592,7 +611,10 @@ def compile_c(sources, output, includes=(), flags=(), libs=(), cc="cc",
 
 def short_errors(text, max_lines=12):
     lines = [ln for ln in text.splitlines() if ln.strip()]
-    keep = [ln for ln in lines if "error" in ln or "warning" in ln] or lines
+    # "error" alone would match every compile line (-Werror)
+    keep = [ln for ln in lines
+            if re.search(r"\b(error|warning)\b|undefined reference", ln,
+                         re.I)] or lines
     out = keep[:max_lines]
     if len(keep) > max_lines:
         out.append(f"... ({len(keep) - max_lines} more lines)")
@@ -789,6 +811,19 @@ def _backdate(directory, seconds=2):
                 pass
 
 
+def _builds_with_clang(ws_dir, name):
+    """make failed: does it build with clang, when cc is gcc here?"""
+    if not have("clang"):
+        return False
+    ver = run(["cc", "--version"], timeout=10)
+    if b"gcc" not in ver.out.lower() and b"free software" not in \
+            ver.out.lower():
+        return False
+    run(["make", "fclean"], cwd=ws_dir, timeout=120)
+    res = run(["make", "CC=clang"], cwd=ws_dir, timeout=300)
+    return res.rc == 0 and os.path.exists(os.path.join(ws_dir, name))
+
+
 def check_makefile(rep, ws_dir, name, rules=("$(NAME)", "all", "clean",
                                              "fclean", "re"),
                    extra_rules=(), bonus=False):
@@ -821,9 +856,18 @@ def check_makefile(rep, ws_dir, name, rules=("$(NAME)", "all", "clean",
 
     res = run(["make"], cwd=ws_dir, timeout=300)
     built = os.path.exists(os.path.join(ws_dir, name))
+    if res.rc != 0 and _builds_with_clang(ws_dir, name):
+        # a warning only gcc emits (-Wtype-limits...) under -Werror: cc is
+        # clang on many 42 machines, so this is not a sure failure
+        rep.warn(f"make builds {name} with clang, not with gcc (cc here)",
+                 short_errors(output(res)))
+        rep.skip("no relink (second make does nothing)",
+                 "built with CC=clang only")
+        return True
     if not rep.check(f"make builds {name}", res.rc == 0 and built,
                      detail=None if res.rc == 0 and built else
-                     short_errors(output(res)) or f"{name} not created"):
+                     (f"make exited 0 but {name} was not created"
+                      if res.rc == 0 else short_errors(output(res)))):
         return False
 
     _backdate(ws_dir)
@@ -1085,6 +1129,16 @@ def check_git_state(rep, project):
                  "(commit and push them)")
 
 
+# README section names in the main campus languages (the subjects allow
+# them): French, Spanish, Portuguese, Italian, German
+SECTION_TRANSLATIONS = {
+    "Description": ["descripci", "descriç", "descrizione", "beschreibung",
+                    "présentation", "presentaci"],
+    "Instructions": ["instruccion", "instruç", "istruzioni", "anleitung"],
+    "Resources": ["ressource", "recurso", "risorse", "quellen"],
+}
+
+
 def check_readme(rep, project, extra_sections=()):
     """README.md rules shared by the current Common Core subjects."""
     path = os.path.join(project, "README.md")
@@ -1104,14 +1158,25 @@ def check_readme(rep, project, extra_sections=()):
               got=first[:120] if not italic else None)
     wording = re.search(r"(project|activity) has been created as part of the "
                         r"42 curriculum by \S+", inner, re.I)
-    rep.check("first line wording + login(s)", bool(wording),
-              got=None if wording else inner[:120])
+    # "you may use the main language of your campus": a translated first
+    # line is shown as a warning, not a failure
+    translated = not wording and "42" in inner and re.search(
+        r"curr[ií]cul|cursus|curricol|lehrplan", inner, re.I)
+    if translated:
+        rep.warn("first line translated",
+                 "the subject gives the English sentence: " + inner[:120])
+    else:
+        rep.check("first line wording + login(s)", bool(wording),
+                  got=None if wording else inner[:120])
     headings = [re.sub(r"^#+\s*", "", ln).strip().lower()
                 for ln in lines if ln.startswith("#")]
     for sec in ("Description", "Instructions", "Resources", *extra_sections):
-        ok = any(sec.lower() in h for h in headings)
+        names = [sec.lower()] + SECTION_TRANSLATIONS.get(sec, [])
+        ok = any(n in h for h in headings for n in names)
         rep.check(f'"{sec}" section', ok)
-    ai = re.search(r"\bAI\b|artificial intelligence|ChatGPT|Claude|LLM|IA\b",
+    ai = re.search(r"\bAI\b|artificial intelligence|intelligence "
+                   r"artificielle|inteligencia artificial|intelig[eê]ncia "
+                   r"artificial|ChatGPT|Claude|Copilot|Gemini|LLM|\bIA\b",
                    text, re.I)
     rep.check("Resources explain how AI was used", bool(ai),
               detail=None if ai else

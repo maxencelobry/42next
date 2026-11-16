@@ -34,6 +34,12 @@ MAX_KO = 15
 RUN_ENV = {"ASAN_OPTIONS": "detect_leaks=0:exitcode=86:abort_on_error=0"}
 MEM_SIZES = (1, 42, 10000000)
 TIMEOUT = 15        # seconds per run (slowest correct run seen: 2.5s)
+# A run over TIMEOUT is run again (one rerun at a time) with SLOW_TIMEOUT:
+# a correct but quadratic get_next_line (BUFFER_SIZE=1, 30000-byte line)
+# takes 5-20s while the other tests run in parallel. The subject sets no
+# time limit, so that is only a WARN.
+SLOW_TIMEOUT = 90
+VG_SLOW_TIMEOUT = 300   # same for a valgrind run (the native run passed)
 VG_TIMEOUT = 120    # seconds per valgrind run
 MAX_TIMEOUTS = 2    # a group stops after this many runs timed out
 NOT_RUN = object()  # ctx.run() result when the group was stopped
@@ -169,6 +175,9 @@ class Ctx:
         self.counter = itertools.count(1)   # thread-safe
         self.timeouts = 0       # runs timed out in the current group
         self.lock = threading.Lock()
+        self.slow_lock = threading.Lock()   # one slow rerun at a time
+        self.slow = []          # runs that needed the rerun (group)
+        self.hang_seen = False  # a rerun timed out too: no more reruns
         self.wrap_noted = False
         self.fx = make_fixtures()
         self.fxdir = ws.tmp("fixtures")
@@ -224,14 +233,43 @@ class Ctx:
         if vg:
             res, leaks = core.valgrind(cmd, cwd=self.ws.root, stdin=stdin,
                                        timeout=VG_TIMEOUT)
+            if res is not None and res.timed_out and not self.hang_seen:
+                res, out, leaks = self.rerun_alone(b, bs, mode, margs, stdin,
+                                                   vg=True)
         else:
             res = core.run(cmd, cwd=self.ws.root, stdin=stdin,
                            timeout=TIMEOUT, env=RUN_ENV)
+            if res.timed_out and not self.hang_seen:
+                res, out, _ = self.rerun_alone(b, bs, mode, margs, stdin)
         if res is not None and res.timed_out:
             with self.lock:
                 self.timeouts += 1
         items, info = parse_out(out)
         return res, items, info, leaks
+
+    def rerun_alone(self, b, bs, mode, margs, stdin, vg=False):
+        """A run timed out: slow, or looping? Run it again, one rerun at a
+        time, with a longer limit. -> (Run, output file, Leaks or None)."""
+        leaks = None
+        with self.slow_lock:
+            out = self.ws.tmp(f"out_{next(self.counter)}")
+            cmd = [b, mode, out, *map(str, margs)]
+            if vg:
+                res, leaks = core.valgrind(cmd, cwd=self.ws.root,
+                                           stdin=stdin,
+                                           timeout=VG_SLOW_TIMEOUT)
+            else:
+                res = core.run(cmd, cwd=self.ws.root, stdin=stdin,
+                               timeout=SLOW_TIMEOUT, env=RUN_ENV)
+        what = os.path.basename(str(margs[0])) if margs else ""
+        with self.lock:
+            if res is None or res.timed_out:
+                self.hang_seen = True
+            else:
+                self.slow.append(f"{bs_name(bs)}  {mode} {what}"
+                                 f"{' (valgrind)' if vg else ''}: "
+                                 f"{res.elapsed:.0f}s on the second try")
+        return res, out, leaks
 
     def note_no_wrap(self):
         """macOS: say once that the --wrap checks are skipped."""
@@ -310,6 +348,8 @@ class Shown:
 
     def __init__(self, ctx):
         self.rep = ctx.rep
+        self.ctx = ctx
+        ctx.slow = []
         self.n = 0
         self.hidden = 0
         self.hung = []
@@ -355,6 +395,14 @@ class Shown:
                 self.rep.warn(name, detail)
             else:
                 self.rep.check(name, False, detail=detail)
+        if self.ctx.slow:
+            self.rep.warn(f"{len(self.ctx.slow)} run(s) hit the time limit "
+                          "while other tests ran in parallel, then finished "
+                          "on a second try with more time: their result is "
+                          "checked as usual (slow, not stuck: the subject "
+                          "sets no time limit)",
+                          "\n".join(sorted(self.ctx.slow)[:8]))
+            self.ctx.slow = []
         self.n = self.hidden = self.not_run = 0
         self.hung = []
 
@@ -400,7 +448,11 @@ def parallel(func, jobs):
     """func(job) for every job, several at a time, results in order."""
     if not jobs:
         return []
-    workers = max(1, min(len(jobs), os.cpu_count() or 2))
+    try:
+        cpus = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        cpus = os.cpu_count() or 2
+    workers = max(1, min(len(jobs), cpus))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(func, jobs))
 
@@ -649,7 +701,8 @@ def check_readerr(ctx, shown, bs, k, after=0, name="2000_random_lines"):
                  "line), then another fd is read from its first line")
     else:
         label = (f"{bs_name(bs)}  {k} line(s) read, then read() returns -1: "
-                 "NULL, then another fd is read from its first line")
+                 "NULL (after the lines already in memory), then another "
+                 "fd is read from its first line")
     if shown.skipped(label, res):
         return
     prob = run_problem(res, bs)
@@ -663,20 +716,29 @@ def check_readerr(ctx, shown, bs, k, after=0, name="2000_random_lines"):
                          f"{core.crepr(exp[i])}, got "
                          f"{core.crepr(items[i]) if i < len(items) else '-'}")
             break
-    # during the error, a line already in memory may still be returned
-    # (no read() needed); anything else must be NULL
+    # the runner calls get_next_line until NULL while read() fails: the
+    # lines already in memory may come first (a get_next_line holding a
+    # whole line does not call read(), so it cannot see the error yet),
+    # then NULL; a partial line or any other line is wrong
+    calls = int(info.get("errcalls", "2"))
     nxt = k
-    for j in (k, k + 1):
+    for j in range(k, k + calls):
         g = items[j] if j < len(items) else "missing"
         if g is None:
-            continue
+            break
         if nxt < len(exp) and g == exp[nxt]:
             nxt += 1
+            if j == k + calls - 1:
+                probs.append(f"{calls} calls while read() fails and no NULL")
             continue
-        probs.append(f"call {j + 1} (read() fails): expected NULL, got "
-                     f"{core.crepr(g) if g != 'missing' else 'nothing'}")
+        got = core.crepr(g) if g != "missing" else "nothing"
+        probs.append(f"call {j + 1} (read() fails): expected NULL"
+                     + (f" or line {nxt + 1} {core.crepr(exp[nxt])} (already "
+                        "in memory)" if nxt < len(exp) else "")
+                     + f", got {got}")
+        break
     probs += [p.replace("line ", "new fd, line ", 1)
-              for p in compare_lines(exp, items[k + 2:])]
+              for p in compare_lines(exp, items[k + calls:])]
     if leak_problem(info):
         probs.append(leak_problem(info) + " (the data of the fd that "
                      "failed was not freed?)")
@@ -1067,7 +1129,9 @@ def check_readme_algo(rep, project):
         return
     with open(path, encoding="utf-8", errors="replace") as fh:
         text = fh.read()
-    ok = re.search(r"algorithm|algorithme", text, re.I)
+    # algorithm, algorithme, algoritmo (the subject allows the campus
+    # language)
+    ok = re.search(r"algorit", text, re.I)
     rep.check("README explains and justifies the algorithm", bool(ok),
               detail=None if ok else
               'the subject asks for "a detailed explanation and justification '

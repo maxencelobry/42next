@@ -266,17 +266,22 @@ int	main(int ac, char **av)
 	else if (!strcmp(mode, "readerr") && (ac == 6 || ac == 7))
 	{
 		long	k = atol(av[4]);
+		long	n;
 		int		fd2;
 
 		/* read k lines, then read() gives av[6] more bytes (default 0)
-		 * and fails: with bytes, the error comes in the middle of a line */
+		 * and fails: with bytes, the error comes in the middle of a line.
+		 * Calls until NULL: lines already in memory may come first (a
+		 * get_next_line that has a whole line does not call read()). */
 		fd = open_or_die(av[3]);
 		while (k-- > 0)
 			call(fd);
 		g_fail_left = ac == 7 ? atol(av[6]) : 0;
 		g_fail_fd = fd;
-		call(fd);
-		call(fd);
+		n = 1;
+		while (n < 200 && call(fd))
+			n++;
+		fprintf(g_out, "Ierrcalls=%ld\n", n);
 		g_fail_fd = -1000;
 		fd2 = open_or_die(av[3]);
 		close(fd);

@@ -81,14 +81,18 @@ def check_readme_algo(rep, project, data_structure):
         return
     with open(path, encoding="utf-8", errors="replace") as fh:
         text = fh.read()
-    algo = re.search(r"algorithm|algorithme", text, re.I)
+    # algorithm, algorithme, algoritmo (the subject allows the campus
+    # language)
+    algo = re.search(r"algorit", text, re.I)
     what = "algorithm and data structure" if data_structure else "algorithm"
     detail = ('the subject asks for "a detailed explanation and justification '
               f'of the chosen {what}" (add e.g. an "Algorithm" section)')
     rep.check("README explains the chosen algorithm", bool(algo),
               detail=None if algo else detail)
     if data_structure:
-        ds = re.search(r"data structure|structure de donn", text, re.I)
+        ds = re.search(r"data structure|structures? de donn|"
+                       r"estructuras? de datos|estruturas? de dados|"
+                       r"strutture? (?:di )?dati|datenstruktur", text, re.I)
         rep.check("README explains the chosen data structure", bool(ds),
                   detail=None if ds else detail)
 
@@ -295,6 +299,7 @@ def report_group(rep, cases, ids, records, soft=False):
     WARN."""
     shown = 0
     hidden = 0
+    soft_hidden = 0
     hung = [i for i in ids if records.get(i, ("",))[0] == "timeout"]
     stopped = len(hung) >= MAX_TIMEOUTS
     not_run = []
@@ -317,6 +322,12 @@ def report_group(rep, cases, ids, records, soft=False):
             rep.check(name, True)
             continue
         if soft:
+            # a bonus rule without the flags gives ~900 failing cases:
+            # show the first ones, like the KO of the mandatory groups
+            if shown >= MAX_KO and not rep.verbose:
+                soft_hidden += 1
+                continue
+            shown += 1
             rep.warn(name + "  (no bonus part in subject v1.1)",
                      f"expected: {exp}\ngot:      {got}"
                      + (f"\n{detail}" if detail else ""))
@@ -337,6 +348,9 @@ def report_group(rep, cases, ids, records, soft=False):
         silent_ko(rep, hidden)
         print(core.red(f"  ... {hidden} more failing case(s) in this group "
                        "(use --verbose to see all)"))
+    if soft_hidden:
+        rep.warn(f"{soft_hidden} more bonus case(s) differ (no bonus part "
+                 "in subject v1.1; use --verbose to see all)")
     if not_run:
         name = (f"group stopped after {len(hung)} timeouts: "
                 f"{len(not_run)} more case(s) not run")

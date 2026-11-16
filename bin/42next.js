@@ -51,7 +51,8 @@ function findFile(dir, test, depth = 2) {
 // ---------------------------------------------------------------- projects
 
 // Python projects in the order of the Common Core
-const PY_ORDER = ['growing_code', 'code_cultivation', 'garden_guardian', 'data_quest', 'data_archivist', 'code_nexus', 'the_codex'];
+const PY_ORDER = ['growing_code', 'code_cultivation', 'garden_guardian', 'data_quest', 'data_archivist', 'code_nexus', 'the_codex',
+  'datadeck', 'funcmage', 'the_matrix', 'cosmic_data'];
 const pyRank = (sp) => { const i = PY_ORDER.indexOf(sp.project); return i < 0 ? PY_ORDER.length : i; };
 const SPECS = ls(path.join(T, 'py', 'specs')).filter((f) => f.endsWith('.json'))
   .map((f) => { try { return JSON.parse(read(path.join(T, 'py', 'specs', f))); } catch { return null; } })
@@ -92,6 +93,15 @@ const C_PROJECTS = [
   {
     id: 'inception', name: 'Inception', group: 'Sysadmin', tester: 'inception/run.py',
     score: (d) => (exists(d, 'Makefile') && (exists(d, 'srcs', 'docker-compose.yml') || exists(d, 'srcs', 'docker-compose.yaml')) ? 60 : 0),
+  },
+  // Python programs with their own tester (names imposed by the subjects)
+  {
+    id: 'amazeing', name: 'A-Maze-ing', group: 'Python', tester: 'amazeing/run.py',
+    score: (d) => (exists(d, 'a_maze_ing.py') ? 60 : 0),
+  },
+  {
+    id: 'pacman', name: 'Pacman', group: 'Python', tester: 'pacman/run.py',
+    score: (d) => (exists(d, 'pac-man.py') ? 60 : 0),
   },
 ];
 
@@ -615,6 +625,7 @@ async function mainMenu(start) {
           ...C_PROJECTS.filter((pr) => pr.group === g).map((pr) => ({ label: pr.name, value: { ...pr, kind: 'c', dir } }))]),
         { section: 'Python' },
         ...SPECS.map((sp) => ({ label: sp.title, value: { id: sp.project, name: sp.title, tester: 'py/run_tests.py', spec: sp, kind: 'py', dir } })),
+        ...C_PROJECTS.filter((pr) => pr.group === 'Python').map((pr) => ({ label: pr.name, value: { ...pr, kind: 'c', dir } })),
       ];
       const pick = await select({ title: 'Which project is this folder?', sub: short(dir), items: all });
       if (pick) await projectMenu(pick);

@@ -1,0 +1,831 @@
+{
+  "project": "the_matrix",
+  "title": "The Matrix",
+  "note": "Subject v2.0. construct.py runs twice: with the Python outside any virtual environment, then inside a fresh `python3 -m venv matrix_env` (activated like `source matrix_env/bin/activate`): outside it must give the venv commands, inside show the venv and its site-packages, and the two outputs must differ. loading.py runs with pandas / numpy / matplotlib made unimportable (no crash, missing packages named, pip and Poetry instructions), then, when they are installed in the Python running the tests (never installed by the tester: SKIP otherwise), it must create an image, show the versions and pip vs Poetry; requirements.txt and pyproject.toml are parsed. oracle.py (needs python-dotenv) runs without configuration, with a .env, with development / production and with environment overrides; .env.example and .gitignore are read. Example lines are warnings only. Source: the subject's modules (typing: warning), type hints, flake8, mypy (loading.py: import errors are a warning, the subject allows them).",
+  "defaults": {
+    "typed": true
+  },
+  "exercises": [
+    {
+      "id": "ex0",
+      "title": "Entering the Matrix",
+      "file": "ex0/construct.py",
+      "imports": [
+        "sys",
+        "os",
+        "site"
+      ],
+      "imports_warn": [
+        "typing"
+      ],
+      "authorized": [
+        "print",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "list",
+        "dict",
+        "tuple",
+        "set",
+        "frozenset",
+        "bytes"
+      ],
+      "tests": [
+        {
+          "name": "outside a virtual environment: runs",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(interpreter='global', timeout=30))",
+            "ran(r, 'python3 construct.py (no virtual environment)')",
+            "assert r['code'] == 0, 'python3 construct.py (no virtual environment): exit code %s, expected 0' % r['code']"
+          ]
+        },
+        {
+          "name": "outside: gives the commands to create and activate a virtual environment",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(interpreter='global', timeout=30))",
+            "ran(r, 'python3 construct.py (no virtual environment)')",
+            "miss = [w for w, rx in (('python -m venv ...', r'-m\\s+venv'), ('... activate', r'activate')) if not re.search(rx, r['out'])]",
+            "assert not miss, 'outside a virtual environment (the subject: Provides instructions for creating and activating a virtual environment if none is detected)\\n    expected: %s\\n    got:      %s' % (', '.join(miss), show(r))"
+          ]
+        },
+        {
+          "name": "inside a virtual environment (python3 -m venv matrix_env, activated): runs",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(interpreter='venv', venv_name='matrix_env', timeout=30))",
+            "ran(r, '(matrix_env) python3 construct.py')",
+            "assert r['code'] == 0, '(matrix_env) python3 construct.py: exit code %s, expected 0' % r['code']"
+          ]
+        },
+        {
+          "name": "inside: shows the virtual environment and its package location",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "def variants(p):",
+            "    return [v for v in dict.fromkeys([p, os.path.realpath(p)]) if v]",
+            "def has_path(out, p):",
+            "    return any(v in out for v in variants(p))",
+            "r = run(**dict(interpreter='venv', venv_name='matrix_env', timeout=30))",
+            "ran(r, '(matrix_env) python3 construct.py')",
+            "venv = r['ctx']['venv']",
+            "assert has_path(r['out'], venv) or 'matrix_env' in r['out'], 'inside matrix_env (the subject: Should detect virtual environment and show details)\\n    expected: the environment, matrix_env (%s)\\n    got:      %s' % (venv, show(r))",
+            "sites = [p for p in r['ctx']['site_packages'] if p.startswith(venv) or os.path.realpath(p).startswith(os.path.realpath(venv))]",
+            "assert any(has_path(r['out'], p) for p in sites), 'inside matrix_env (the subject: Shows the difference between global and virtual environment package locations)\\n    expected: the package installation path %s\\n    got:      %s' % (' or '.join(sites), show(r))"
+          ]
+        },
+        {
+          "name": "different outputs inside and outside (the virtual environment is detected)",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "a = run(**dict(interpreter='global', timeout=30))",
+            "b = run(**dict(interpreter='venv', venv_name='matrix_env', timeout=30))",
+            "ran(a, 'python3 construct.py (no virtual environment)')",
+            "ran(b, '(matrix_env) python3 construct.py')",
+            "def skeleton(r):",
+            "    c = r['ctx']",
+            "    paths = [c.get('executable'), c.get('prefix'), c.get('base_prefix'), c.get('venv')] + list(c.get('site_packages') or [])",
+            "    names = {part for p in paths if p for part in re.split(r'[/\\\\]', p) if len(part) > 1} | {'matrix_env'}",
+            "    text = re.sub(r'\\S*[/\\\\]\\S*', '<path>', r['out'])",
+            "    for name in sorted(names, key=len, reverse=True):",
+            "        text = re.sub(r'(?<![\\w.])' + re.escape(name) + r'(?![\\w.])', '<name>', text)",
+            "    lines = [ln.strip() for ln in text.splitlines() if ln.strip() and ln.strip() != '<path>']",
+            "    return [ln for i, ln in enumerate(lines) if i == 0 or ln != lines[i - 1]]",
+            "assert skeleton(a) != skeleton(b), 'same output inside and outside a virtual environment, only paths / names differ (the subject: providing different outputs for each scenario)\\n    outside: %s\\n    inside:  %s' % (show(a), show(b))"
+          ]
+        },
+        {
+          "name": "outside: output like the subject example",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(interpreter='global', timeout=30))",
+            "ran(r, 'python3 construct.py (no virtual environment)')",
+            "ok, why = expect_lines(r['out'], [\"MATRIX STATUS: You're still plugged in\", {'re': r'Current Python: \\S+', 'subject': 'Current Python: /usr/bin/python3.11'}, 'Virtual Environment: None detected', \"WARNING: You're in the global environment!\", 'The machines can see everything you install.', 'To enter the construct, run:', 'python -m venv matrix_env', {'re': r'source matrix_env/bin/activate\\s*(#.*)?', 'subject': 'source matrix_env/bin/activate # On Unix'}, {'re': r'matrix_env\\\\Scripts\\\\activate\\s*(#.*)?', 'subject': 'matrix_env\\\\Scripts\\\\activate # On Windows'}, 'Then run this program again.'])",
+            "assert ok, why"
+          ],
+          "severity": "warn"
+        },
+        {
+          "name": "inside: output like the subject example",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "def variants(p):",
+            "    return [v for v in dict.fromkeys([p, os.path.realpath(p)]) if v]",
+            "def has_path(out, p):",
+            "    return any(v in out for v in variants(p))",
+            "r = run(**dict(interpreter='venv', venv_name='matrix_env', timeout=30))",
+            "ran(r, '(matrix_env) python3 construct.py')",
+            "venv = r['ctx']['venv']",
+            "alt = lambda p: '(' + '|'.join(re.escape(v) for v in variants(p)) + ')'",
+            "py = r['ctx']['executable']",
+            "sites = r['ctx']['site_packages'] or [venv + '/lib/python/site-packages']",
+            "ok, why = expect_lines(r['out'], ['MATRIX STATUS: Welcome to the construct', {'re': 'Current Python: ' + alt(venv) + r'\\S*', 'subject': 'Current Python: %s' % py}, 'Virtual Environment: matrix_env', {'re': 'Environment Path: ' + alt(venv), 'subject': 'Environment Path: %s' % venv}, \"SUCCESS: You're in an isolated environment!\", 'Safe to install packages without affecting', 'the global system.', 'Package installation path:', {'re': '|'.join(alt(p) for p in sites), 'subject': sites[0]}])",
+            "assert ok, why"
+          ],
+          "severity": "warn"
+        },
+        {
+          "name": "no virtual environment submitted in the repository",
+          "mode": "files",
+          "code": [
+            "found = venv_dirs()",
+            "bad = [d for d in found if tracked(d)]",
+            "assert not bad, 'virtual environment committed: %s (the subject: Do not submit your virtual environnement in your repository)' % ', '.join(bad)",
+            "for d in found:",
+            "    if tracked(d) is None:",
+            "        note('%s/ is a virtual environment: do not submit it (the subject), keep it out of the repository' % d)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ex1",
+      "title": "Loading Programs",
+      "file": "ex1/loading.py",
+      "imports": [
+        "pandas",
+        "requests",
+        "matplotlib",
+        "numpy",
+        "sys",
+        "importlib"
+      ],
+      "imports_warn": [
+        "typing",
+        "types"
+      ],
+      "require_imports": [
+        {
+          "kind": "any",
+          "module": "pandas",
+          "label": "uses pandas"
+        },
+        {
+          "kind": "any",
+          "module": "numpy",
+          "label": "uses numpy"
+        },
+        {
+          "kind": "any",
+          "module": "matplotlib",
+          "label": "uses matplotlib"
+        }
+      ],
+      "flake8_expect": [
+        "E401",
+        "E402",
+        "F401",
+        "F811"
+      ],
+      "mypy_expect": [
+        "import-not-found",
+        "import-untyped",
+        "import"
+      ],
+      "tests": [
+        {
+          "name": "no dependency installed: handled gracefully (no crash)",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(hide_modules=['pandas', 'numpy', 'matplotlib', 'requests'], timeout=60))",
+            "ran(r, 'python3 loading.py without pandas, numpy, matplotlib, requests (the subject: Your program must handle missing dependencies gracefully)')"
+          ],
+          "requires": []
+        },
+        {
+          "name": "no dependency installed: shows the missing packages",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(hide_modules=['pandas', 'numpy', 'matplotlib', 'requests'], timeout=60))",
+            "ran(r, 'python3 loading.py without dependencies')",
+            "miss = [p for p in ('pandas', 'numpy', 'matplotlib') if p not in both(r).lower()]",
+            "assert not miss, 'python3 loading.py without dependencies (the subject: Should show missing dependencies)\\n    expected: pandas, numpy, matplotlib named\\n    missing:  %s\\n    got:      %s' % (', '.join(miss), show(r))"
+          ],
+          "requires": []
+        },
+        {
+          "name": "no dependency installed: installation instructions for pip and Poetry",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(hide_modules=['pandas', 'numpy', 'matplotlib', 'requests'], timeout=60))",
+            "ran(r, 'python3 loading.py without dependencies')",
+            "miss = [w for w, rx in (('pip install ...', r'(?i)\\bpip3?\\s+install\\b'), ('poetry install / poetry add ...', r'(?i)\\bpoetry\\s+(install|add)\\b')) if not re.search(rx, both(r))]",
+            "assert not miss, 'python3 loading.py without dependencies (the subject: Should show missing dependencies and installation instructions for pip and Poetry)\\n    expected: %s\\n    got:      %s' % (', '.join(miss), show(r))"
+          ],
+          "requires": []
+        },
+        {
+          "name": "only matplotlib missing: no crash, matplotlib reported",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(hide_modules=['matplotlib'], requires=['pandas', 'numpy'], timeout=60))",
+            "ran(r, 'python3 loading.py with pandas and numpy, without matplotlib')",
+            "assert 'matplotlib' in both(r).lower(), 'python3 loading.py without matplotlib (the subject: detect which packages are available and provide helpful error messages)\\n    expected: matplotlib named as missing\\n    got:      %s' % show(r)"
+          ],
+          "requires": [
+            "pandas",
+            "numpy"
+          ]
+        },
+        {
+          "name": "every dependency installed: the analysis runs",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(requires=['pandas', 'numpy', 'matplotlib'], env={'MPLBACKEND': 'Agg'}, timeout=120))",
+            "ran(r, 'python3 loading.py')",
+            "assert r['code'] == 0, 'python3 loading.py with every dependency: exit code %s, expected 0\\n    got: %s' % (r['code'], show(r))"
+          ],
+          "requires": [
+            "pandas",
+            "numpy",
+            "matplotlib"
+          ]
+        },
+        {
+          "name": "every dependency installed: creates the visualization (an image file)",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(requires=['pandas', 'numpy', 'matplotlib'], env={'MPLBACKEND': 'Agg'}, timeout=120))",
+            "ran(r, 'python3 loading.py')",
+            "images = [f for f in r['new_files'] if f.lower().endswith(('.png', '.jpg', '.jpeg', '.svg', '.pdf'))]",
+            "assert images, 'python3 loading.py (the subject: generate a simple visualization)\\n    expected: an image file written (matrix_analysis.png in the example)\\n    got:      files written: %s' % (r['new_files'] or 'none')",
+            "if not any(os.path.basename(f) == 'matrix_analysis.png' for f in images):",
+            "    note('visualization saved as %s, the subject example says matrix_analysis.png' % ', '.join(images))"
+          ],
+          "requires": [
+            "pandas",
+            "numpy",
+            "matplotlib"
+          ]
+        },
+        {
+          "name": "every dependency installed: shows the installed package versions",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(requires=['pandas', 'numpy', 'matplotlib'], env={'MPLBACKEND': 'Agg'}, timeout=120))",
+            "ran(r, 'python3 loading.py')",
+            "vers = r['ctx'].get('versions', {})",
+            "miss = ['%s %s' % (p, v) for p, v in vers.items() if v and v not in r['out']]",
+            "assert not miss, 'python3 loading.py (the subject: Include a comparison function that shows installed package versions)\\n    expected: %s\\n    got:      %s' % (', '.join('%s (%s)' % kv for kv in vers.items()), show(r))"
+          ],
+          "requires": [
+            "pandas",
+            "numpy",
+            "matplotlib"
+          ]
+        },
+        {
+          "name": "every dependency installed: shows the differences between pip and Poetry",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(requires=['pandas', 'numpy', 'matplotlib'], env={'MPLBACKEND': 'Agg'}, timeout=120))",
+            "ran(r, 'python3 loading.py')",
+            "low = r['out'].lower()",
+            "miss = [w for w in ('pip', 'poetry') if not re.search(r'\\b' + w + r'\\b', low)]",
+            "assert not miss, 'python3 loading.py (the subject: Show the differences between pip and Poetry through your program\\'s output)\\n    expected: pip and Poetry both in the output\\n    missing:  %s' % ', '.join(miss)"
+          ],
+          "requires": [
+            "pandas",
+            "numpy",
+            "matplotlib"
+          ]
+        },
+        {
+          "name": "every dependency installed: output like the subject example",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(requires=['pandas', 'numpy', 'matplotlib'], env={'MPLBACKEND': 'Agg'}, timeout=120))",
+            "ran(r, 'python3 loading.py')",
+            "v = r['ctx'].get('versions', {})",
+            "ok, why = expect_lines(r['out'], ['LOADING STATUS: Loading programs...', 'Checking dependencies:', '[OK] pandas (%s) - Data manipulation ready' % v.get('pandas'), '[OK] numpy (%s) - Numerical computation ready' % v.get('numpy'), '[OK] matplotlib (%s) - Visualization ready' % v.get('matplotlib'), 'Analyzing Matrix data...', {'re': r'Processing \\d+ data points\\.\\.\\.', 'subject': 'Processing 1000 data points...'}, 'Generating visualization...', 'Analysis complete!', {'re': r'Results saved to: \\S+', 'subject': 'Results saved to: matrix_analysis.png'}])",
+            "assert ok, why"
+          ],
+          "severity": "warn",
+          "requires": [
+            "pandas",
+            "numpy",
+            "matplotlib"
+          ]
+        },
+        {
+          "name": "requirements.txt: every line is a valid requirement",
+          "mode": "files",
+          "code": [
+            "assert text is not None, 'ex1/requirements.txt not found (Files to Submit: loading.py, requirements.txt, pyproject.toml)'",
+            "bad = ['line %d: %r: %s' % (n, raw, e) for n, name, raw, e in requirements(text) if e]",
+            "assert not bad, 'ex1/requirements.txt\\n    ' + '\\n    '.join(bad)"
+          ],
+          "file": "ex1/requirements.txt"
+        },
+        {
+          "name": "requirements.txt lists pandas, numpy, matplotlib (+ requests if used)",
+          "mode": "files",
+          "code": [
+            "import ast",
+            "def uses_requests():",
+            "    try:",
+            "        tree = ast.parse(source or '')",
+            "    except SyntaxError:",
+            "        return False",
+            "    for n in ast.walk(tree):",
+            "        if isinstance(n, ast.Import) and any(a.name.split('.')[0] == 'requests' for a in n.names):",
+            "            return True",
+            "        if isinstance(n, ast.ImportFrom) and (n.module or '').split('.')[0] == 'requests':",
+            "            return True",
+            "        if isinstance(n, ast.Constant) and n.value == 'requests':",
+            "            return True",
+            "    return False",
+            "want = ['pandas', 'numpy', 'matplotlib'] + (['requests'] if uses_requests() else [])",
+            "assert text is not None, 'ex1/requirements.txt not found'",
+            "names = [name for n, name, raw, e in requirements(text) if name]",
+            "miss = [p for p in want if p not in names]",
+            "assert not miss, 'ex1/requirements.txt (the subject: Create both requirements.txt (for pip) and pyproject.toml (for Poetry))\\n    expected: %s\\n    missing:  %s\\n    got:      %s' % (', '.join(want), ', '.join(miss), ', '.join(names) or 'no package')"
+          ],
+          "file": "ex1/requirements.txt"
+        },
+        {
+          "name": "pyproject.toml is valid TOML with a Poetry project",
+          "mode": "files",
+          "code": [
+            "assert text is not None, 'ex1/pyproject.toml not found (Files to Submit: loading.py, requirements.txt, pyproject.toml)'",
+            "try:",
+            "    data = toml(text)",
+            "except ValueError as e:",
+            "    raise AssertionError('ex1/pyproject.toml is not valid TOML: %s' % e)",
+            "poetry = data.get('tool', {}).get('poetry')",
+            "assert isinstance(poetry, dict) or isinstance(data.get('project'), dict), 'ex1/pyproject.toml: no [tool.poetry] (or [project]) section: Poetry has no project to install\\n    got sections: %s' % ', '.join(sorted(data)) "
+          ],
+          "file": "ex1/pyproject.toml"
+        },
+        {
+          "name": "pyproject.toml lists pandas, numpy, matplotlib (+ requests if used)",
+          "mode": "files",
+          "code": [
+            "import ast",
+            "def uses_requests():",
+            "    try:",
+            "        tree = ast.parse(source or '')",
+            "    except SyntaxError:",
+            "        return False",
+            "    for n in ast.walk(tree):",
+            "        if isinstance(n, ast.Import) and any(a.name.split('.')[0] == 'requests' for a in n.names):",
+            "            return True",
+            "        if isinstance(n, ast.ImportFrom) and (n.module or '').split('.')[0] == 'requests':",
+            "            return True",
+            "        if isinstance(n, ast.Constant) and n.value == 'requests':",
+            "            return True",
+            "    return False",
+            "want = ['pandas', 'numpy', 'matplotlib'] + (['requests'] if uses_requests() else [])",
+            "assert text is not None, 'ex1/pyproject.toml not found'",
+            "try:",
+            "    data = toml(text)",
+            "except ValueError as e:",
+            "    raise AssertionError('ex1/pyproject.toml is not valid TOML: %s' % e)",
+            "poetry = data.get('tool', {}).get('poetry', {})",
+            "names = [norm_dist(k) for k in poetry.get('dependencies', {})]",
+            "for g in poetry.get('group', {}).values():",
+            "    names += [norm_dist(k) for k in g.get('dependencies', {})]",
+            "names += [requirement_name(d) for d in data.get('project', {}).get('dependencies', []) if isinstance(d, str)]",
+            "names = [n for n in names if n]",
+            "miss = [p for p in want if p not in names]",
+            "assert not miss, 'ex1/pyproject.toml (the subject: Includes proper dependency files for both approaches)\\n    expected: %s in [tool.poetry.dependencies] (or [project] dependencies)\\n    missing:  %s\\n    got:      %s' % (', '.join(want), ', '.join(miss), ', '.join(names) or 'no dependency')"
+          ],
+          "file": "ex1/pyproject.toml"
+        },
+        {
+          "name": "pyproject.toml is a Poetry file with a Python version (poetry install can resolve it)",
+          "mode": "files",
+          "code": [
+            "assert text is not None, 'ex1/pyproject.toml not found'",
+            "try:",
+            "    data = toml(text)",
+            "except ValueError as e:",
+            "    raise AssertionError('not valid TOML: %s' % e)",
+            "poetry = data.get('tool', {}).get('poetry')",
+            "backend = str(data.get('build-system', {}).get('build-backend', ''))",
+            "assert isinstance(poetry, dict) or 'poetry' in backend, 'no [tool.poetry] section and the build backend is not poetry-core: is it a file for Poetry?'",
+            "py = (poetry or {}).get('dependencies', {}).get('python') or data.get('project', {}).get('requires-python')",
+            "assert py, 'no Python version (python = \"^3.10\" in [tool.poetry.dependencies], or requires-python): poetry cannot resolve pandas / numpy without it'"
+          ],
+          "file": "ex1/pyproject.toml",
+          "severity": "warn"
+        },
+        {
+          "name": "the dataset comes from numpy (no range(), no hardcoded list of numbers)",
+          "mode": "files",
+          "code": [
+            "import ast",
+            "tree = ast.parse(source or '')",
+            "bad = ['range() line %d' % n.lineno for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, 'id', None) == 'range']",
+            "bad += ['a list of %d numbers line %d' % (len(n.elts), n.lineno) for n in ast.walk(tree) if isinstance(n, (ast.List, ast.Tuple)) and len(n.elts) >= 5 and all(isinstance(e, ast.Constant) and isinstance(e.value, (int, float)) for e in n.elts)]",
+            "assert not bad, ', '.join(bad) + ': the subject says numpy must be the source of your dataset, not hardcoded lists or range(): check what it feeds'"
+          ],
+          "severity": "warn"
+        }
+      ]
+    },
+    {
+      "id": "ex2",
+      "title": "Accessing the Mainframe",
+      "file": "ex2/oracle.py",
+      "imports": [
+        "os",
+        "sys",
+        "dotenv"
+      ],
+      "imports_warn": [
+        "typing"
+      ],
+      "require_imports": [
+        {
+          "kind": "any",
+          "module": "dotenv",
+          "label": "uses python-dotenv (dotenv)"
+        }
+      ],
+      "requires": [
+        {
+          "module": "dotenv",
+          "pip": "python-dotenv"
+        }
+      ],
+      "tests": [
+        {
+          "name": "no .env, no variable set: runs",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "ran(r, 'python3 oracle.py (no .env, no MATRIX_MODE / DATABASE_URL / API_KEY / LOG_LEVEL / ZION_ENDPOINT)')"
+          ],
+          "requires": [
+            {
+              "module": "dotenv",
+              "pip": "python-dotenv"
+            }
+          ]
+        },
+        {
+          "name": "no .env, no variable set: warns about the missing configuration",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "ran(r, 'python3 oracle.py (no configuration)')",
+            "assert re.search('(?i)\\\\b(missing|not set|not found|not configured|not defined|undefined|unset|warning|default)\\\\b', both(r)), 'python3 oracle.py without configuration (the subject: Should show default/missing configuration warnings)\\n    expected: a warning about the missing / default configuration\\n    got:      %s' % show(r)"
+          ],
+          "requires": [
+            {
+              "module": "dotenv",
+              "pip": "python-dotenv"
+            }
+          ]
+        },
+        {
+          "name": "the .env file is loaded (its values change the output)",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "a = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "b = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, fixtures={'.env': 'MATRIX_MODE=development\\nDATABASE_URL=postgresql://neo:pw@localhost:5432/zion\\nAPI_KEY=tk_4242_test_key\\nLOG_LEVEL=ERROR\\nZION_ENDPOINT=http://localhost:4242/zion\\n'}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "ran(b, 'python3 oracle.py with a .env file')",
+            "assert a['out'] != b['out'], 'python3 oracle.py: same output with and without a .env file (the subject: Uses a .env file for development settings, Should load configuration from .env file)\\n    got: %s' % show(b)"
+          ],
+          "requires": [
+            {
+              "module": "dotenv",
+              "pip": "python-dotenv"
+            }
+          ]
+        },
+        {
+          "name": "development / production: the difference is visible in the output",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "a = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, fixtures={'.env': 'MATRIX_MODE=development\\nDATABASE_URL=postgresql://neo:pw@localhost:5432/zion\\nAPI_KEY=tk_4242_test_key\\nLOG_LEVEL=ERROR\\nZION_ENDPOINT=http://localhost:4242/zion\\n'}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "b = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, fixtures={'.env': 'MATRIX_MODE=production\\nDATABASE_URL=postgresql://neo:pw@localhost:5432/zion\\nAPI_KEY=tk_4242_test_key\\nLOG_LEVEL=ERROR\\nZION_ENDPOINT=http://localhost:4242/zion\\n'}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "ran(a, 'python3 oracle.py (.env: MATRIX_MODE=development)')",
+            "ran(b, 'python3 oracle.py (.env: MATRIX_MODE=production)')",
+            "assert a['out'] != b['out'], 'same output for MATRIX_MODE=development and MATRIX_MODE=production (the subject: Demonstrates different configuration for development/production, it must be visible in the output)\\n    got: %s' % show(a)",
+            "pa, pb = a['out'].lower().count('production'), b['out'].lower().count('production')",
+            "assert pb > pa, 'MATRIX_MODE=production in .env: the output does not say production more than with development\\n    development: %s\\n    production:  %s' % (show(a), show(b))"
+          ],
+          "requires": [
+            {
+              "module": "dotenv",
+              "pip": "python-dotenv"
+            }
+          ]
+        },
+        {
+          "name": "environment variables override .env (MATRIX_MODE=production API_KEY=secret123 python3 oracle.py)",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "a = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, fixtures={'.env': 'MATRIX_MODE=development\\nDATABASE_URL=postgresql://neo:pw@localhost:5432/zion\\nAPI_KEY=tk_4242_test_key\\nLOG_LEVEL=ERROR\\nZION_ENDPOINT=http://localhost:4242/zion\\n'}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "c = run(**dict(cwd='temp', env=dict({'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, **{'MATRIX_MODE': 'production', 'API_KEY': 'secret123'}), fixtures={'.env': 'MATRIX_MODE=development\\nDATABASE_URL=postgresql://neo:pw@localhost:5432/zion\\nAPI_KEY=tk_4242_test_key\\nLOG_LEVEL=ERROR\\nZION_ENDPOINT=http://localhost:4242/zion\\n'}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "ran(c, 'MATRIX_MODE=production API_KEY=secret123 python3 oracle.py (.env says development)')",
+            "pa, pc = a['out'].lower().count('production'), c['out'].lower().count('production')",
+            "assert c['out'] != a['out'] and pc > pa, 'MATRIX_MODE=production API_KEY=secret123 python3 oracle.py with MATRIX_MODE=development in .env (the subject: Should use environment variables over .env file)\\n    expected: the production configuration\\n    got:      %s' % show(c)"
+          ],
+          "requires": [
+            {
+              "module": "dotenv",
+              "pip": "python-dotenv"
+            }
+          ]
+        },
+        {
+          "name": "missing configuration is handled (API_KEY missing from .env)",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "a = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, fixtures={'.env': 'MATRIX_MODE=development\\nDATABASE_URL=postgresql://neo:pw@localhost:5432/zion\\nAPI_KEY=tk_4242_test_key\\nLOG_LEVEL=ERROR\\nZION_ENDPOINT=http://localhost:4242/zion\\n'}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "r = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, fixtures={'.env': 'MATRIX_MODE=development\\nDATABASE_URL=postgresql://neo:pw@localhost:5432/zion\\nLOG_LEVEL=ERROR\\nZION_ENDPOINT=http://localhost:4242/zion\\n'}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "ran(r, 'python3 oracle.py (.env without API_KEY)')",
+            "assert r['out'] != a['out'], 'python3 oracle.py: same output with and without API_KEY (the subject: Includes proper error handling for missing configuration)\\n    got: %s' % show(r)"
+          ],
+          "requires": [
+            {
+              "module": "dotenv",
+              "pip": "python-dotenv"
+            }
+          ]
+        },
+        {
+          "name": "output like the subject example",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, fixtures={'.env': 'MATRIX_MODE=development\\nDATABASE_URL=postgresql://neo:pw@localhost:5432/zion\\nAPI_KEY=tk_4242_test_key\\nLOG_LEVEL=ERROR\\nZION_ENDPOINT=http://localhost:4242/zion\\n'}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "ran(r, 'python3 oracle.py')",
+            "ok, why = expect_lines(r['out'], ['ORACLE STATUS: Reading the Matrix...', 'Configuration loaded:', 'Mode: development', {'re': r'Database: \\S.*', 'subject': 'Database: Connected to local instance'}, {'re': r'API Access: \\S.*', 'subject': 'API Access: Authenticated'}, {'re': r'Log Level: ERROR', 'subject': 'Log Level: DEBUG (here LOG_LEVEL=ERROR)'}, {'re': r'Zion Network: \\S.*', 'subject': 'Zion Network: Online'}, 'Environment security check:', {'re': r'\\[OK\\] .*secret.*', 'subject': '[OK] No hardcoded secrets detected'}, {'re': r'\\[OK\\] .*\\.env.*', 'subject': '[OK] .env file properly configured'}, {'re': r'\\[OK\\] .*[Pp]roduction.*', 'subject': '[OK] Production overrides available'}, 'The Oracle sees all configurations.'])",
+            "assert ok, why"
+          ],
+          "severity": "warn",
+          "requires": [
+            {
+              "module": "dotenv",
+              "pip": "python-dotenv"
+            }
+          ]
+        },
+        {
+          "name": "the API key is not printed",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(**dict(cwd='temp', env={'MATRIX_MODE': None, 'DATABASE_URL': None, 'API_KEY': None, 'LOG_LEVEL': None, 'ZION_ENDPOINT': None}, fixtures={'.env': 'MATRIX_MODE=development\\nDATABASE_URL=postgresql://neo:pw@localhost:5432/zion\\nAPI_KEY=tk_4242_test_key\\nLOG_LEVEL=ERROR\\nZION_ENDPOINT=http://localhost:4242/zion\\n'}, requires=[dict(module='dotenv', pip='python-dotenv')], timeout=30))",
+            "ran(r, 'python3 oracle.py')",
+            "assert 'tk_4242_test_key' not in both(r), 'the value of API_KEY (a secret) is printed in clear'"
+          ],
+          "severity": "warn",
+          "requires": [
+            {
+              "module": "dotenv",
+              "pip": "python-dotenv"
+            }
+          ]
+        },
+        {
+          "name": "python-dotenv not installed: no crash",
+          "mode": "files",
+          "code": [
+            "def ran(r, what):",
+            "    assert not r['timeout'], '%s: timed out (waiting for input, or an infinite loop)' % what",
+            "    tb = r['err'].strip().splitlines()",
+            "    assert 'Traceback' not in r['err'], '%s: crashed\\n    ' % what + '\\n    '.join(tb[-3:])",
+            "def show(r):",
+            "    return repr(r['out'][:400]) + (' ...' if len(r['out']) > 400 else '')",
+            "def both(r):",
+            "    return r['out'] + '\\n' + r['err']",
+            "r = run(cwd='temp', hide_modules=[dict(module='dotenv', pip='python-dotenv')], timeout=30)",
+            "ran(r, 'python3 oracle.py without python-dotenv (the subject: Test your programs ... with/without dependencies)')"
+          ],
+          "severity": "warn",
+          "requires": []
+        },
+        {
+          "name": ".env.example has the five configuration variables",
+          "mode": "files",
+          "code": [
+            "assert text is not None, 'ex2/.env.example not found (Files to Submit: oracle.py, .env.example, .gitignore)'",
+            "want = ['MATRIX_MODE', 'DATABASE_URL', 'API_KEY', 'LOG_LEVEL', 'ZION_ENDPOINT']",
+            "keys = env_keys(text)",
+            "miss = [k for k in want if k not in keys]",
+            "assert not miss, 'ex2/.env.example (the subject: cp .env.example .env, Your program should handle these configuration variables)\\n    expected: %s\\n    missing:  %s\\n    got:      %s' % (', '.join(want), ', '.join(miss), ', '.join(keys) or 'no variable')"
+          ],
+          "file": "ex2/.env.example",
+          "requires": []
+        },
+        {
+          "name": ".gitignore ignores .env (and not .env.example)",
+          "mode": "files",
+          "code": [
+            "assert text is not None, 'ex2/.gitignore not found (Files to Submit: oracle.py, .env.example, .gitignore)'",
+            "assert ignored(text, '.env'), 'ex2/.gitignore does not ignore .env (the subject: Your .env file should be in .gitignore)\\n    got: %r' % text[:200]",
+            "assert not ignored(text, '.env.example'), 'ex2/.gitignore also ignores .env.example, which must be submitted (Files to Submit)\\n    got: %r' % text[:200]"
+          ],
+          "file": "ex2/.gitignore",
+          "requires": []
+        },
+        {
+          "name": "no .env committed",
+          "mode": "files",
+          "code": [
+            "t = tracked('ex2/.env')",
+            "assert not t, 'ex2/.env is committed: never commit real secrets to version control (the subject)'"
+          ],
+          "requires": []
+        }
+      ]
+    }
+  ]
+}

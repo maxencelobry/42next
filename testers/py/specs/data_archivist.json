@@ -1,7 +1,7 @@
 {
   "project": "data_archivist",
   "title": "Data Archivist",
-  "note": "Subject v2.0. Each script runs in an empty temporary folder with the fixtures we create (ancient_fragment.txt, chmod 000 / 444 files), nothing in your project is touched. The frame (---, blank lines, contents, the # transform) is checked line by line; messages may be reworded (subject 3.2) as long as the essential info is there: a reworded line is a warning, not a failure. Every file you open must be closed, errors must not crash the script. Source: authorized builtins and the sys / typing / file methods of each 'Authorized:' line (warning), imports sys / typing only (none in ex3), no 'with' before ex3, 'with' required in ex3, input() forbidden in ex2, secure_archive(name, action=..., content=...), type hints, flake8, mypy.",
+  "note": "Subject v2.0. Each script runs in an empty temporary folder with the fixtures we create (ancient_fragment.txt, chmod 000 / 444 files), nothing in your project is touched. The frame (---, contents, the # transform) is checked line by line, blank lines are layout (a warning); messages may be reworded (subject 3.2) as long as the essential info is there: a reworded line is a warning, not a failure. Every file you open must be closed, errors must not crash the script. Source: authorized builtins and the sys / typing / file methods of each 'Authorized:' line (warning), imports sys / typing only (none in ex3), no 'with' before ex3, 'with' required in ex3, input() forbidden in ex2, secure_archive(name, action=..., content=...), type hints, flake8, mypy.",
   "defaults": {
     "typed": true
   },
@@ -143,27 +143,37 @@
           },
           "match": {
             "stdout": {
-              "type": "lines",
-              "items": [
-                {
-                  "re": "=== .+ ===",
-                  "subject": "=== Cyber Archives Recovery ==="
-                },
-                {
-                  "re": ".*'ancient_fragment\\.txt'.*",
-                  "subject": "Accessing file 'ancient_fragment.txt'"
-                },
-                "---",
-                "",
-                "[FRAGMENT 001] Digital preservation protocols established 2087",
-                "[FRAGMENT 002] Knowledge must survive the entropy wars",
-                "[FRAGMENT 003] Every byte saved is a victory against oblivion",
-                "",
-                "---",
-                {
-                  "re": ".*'ancient_fragment\\.txt'.*closed.*",
-                  "subject": "File 'ancient_fragment.txt' closed."
-                }
+              "type": "python",
+              "code": [
+                "import re",
+                "# the subject example line by line: a string is exact, {re, subject} holds values (another wording: warning); blank lines are layout (warning)",
+                "items = [{\"re\": \"=== .+ ===\", \"subject\": \"=== Cyber Archives Recovery ===\"}, {\"re\": \".*'ancient_fragment\\\\.txt'.*\", \"subject\": \"Accessing file 'ancient_fragment.txt'\"}, \"---\", \"\", \"[FRAGMENT 001] Digital preservation protocols established 2087\", \"[FRAGMENT 002] Knowledge must survive the entropy wars\", \"[FRAGMENT 003] Every byte saved is a victory against oblivion\", \"\", \"---\", {\"re\": \".*'ancient_fragment\\\\.txt'.*closed.*\", \"subject\": \"File 'ancient_fragment.txt' closed.\"}]",
+                "want = [it for it in items if it != '']",
+                "got = [(n + 1, ln) for n, ln in enumerate(lines) if ln.strip()]",
+                "for i, it in enumerate(want):",
+                "    shown = it if isinstance(it, str) else it.get('subject', '/' + it['re'] + '/')",
+                "    assert i < len(got), 'expected %r\\n            got (end of output)' % shown",
+                "    n, ln = got[i]",
+                "    ok = ln == it if isinstance(it, str) else re.fullmatch(it['re'], ln) is not None",
+                "    after = ''.join('\\n  after: %r' % g for _, g in got[max(0, i - 2):i])",
+                "    assert ok, 'line %d: expected %r\\n            got %r%s' % (n, shown, ln, after)",
+                "    if not isinstance(it, str) and 'subject' in it and ln != it['subject']:",
+                "        note('line %d differs from the subject example (accepted): %r vs %r' % (n, ln, it['subject']))",
+                "assert len(got) == len(want), 'extra output from line %d: %r' % got[len(want)]",
+                "def gaps(seq):",
+                "    out, run = [], 0",
+                "    for x in seq:",
+                "        if x == '':",
+                "            run += 1",
+                "        else:",
+                "            out.append(run)",
+                "            run = 0",
+                "    return out",
+                "mine, theirs = gaps(lines), gaps(items)",
+                "for k in range(len(want)):",
+                "    if mine[k] != theirs[k]:",
+                "        note('blank lines differ from the subject example (layout, accepted): %d blank line(s) before line %d %r, the subject shows %d' % (mine[k], got[k][0], got[k][1], theirs[k]))",
+                "        break"
               ]
             }
           }
@@ -265,40 +275,37 @@
           },
           "match": {
             "stdout": {
-              "type": "lines",
-              "items": [
-                {
-                  "re": "=== .+ ===",
-                  "subject": "=== Cyber Archives Recovery & Preservation ==="
-                },
-                {
-                  "re": ".*'ancient_fragment\\.txt'.*",
-                  "subject": "Accessing file 'ancient_fragment.txt'"
-                },
-                "---",
-                "",
-                "[FRAGMENT 001] Digital preservation protocols established 2087",
-                "[FRAGMENT 002] Knowledge must survive the entropy wars",
-                "[FRAGMENT 003] Every byte saved is a victory against oblivion",
-                "",
-                "---",
-                {
-                  "re": ".*'ancient_fragment\\.txt'.*closed.*",
-                  "subject": "File 'ancient_fragment.txt' closed."
-                },
-                "",
-                "Transform data:",
-                "---",
-                "",
-                "[FRAGMENT 001] Digital preservation protocols established 2087#",
-                "[FRAGMENT 002] Knowledge must survive the entropy wars#",
-                "[FRAGMENT 003] Every byte saved is a victory against oblivion#",
-                "",
-                "---",
-                {
-                  "re": ".+",
-                  "subject": "Enter new file name (or empty): Not saving data."
-                }
+              "type": "python",
+              "code": [
+                "import re",
+                "# the subject example line by line: a string is exact, {re, subject} holds values (another wording: warning); blank lines are layout (warning)",
+                "items = [{\"re\": \"=== .+ ===\", \"subject\": \"=== Cyber Archives Recovery & Preservation ===\"}, {\"re\": \".*'ancient_fragment\\\\.txt'.*\", \"subject\": \"Accessing file 'ancient_fragment.txt'\"}, \"---\", \"\", \"[FRAGMENT 001] Digital preservation protocols established 2087\", \"[FRAGMENT 002] Knowledge must survive the entropy wars\", \"[FRAGMENT 003] Every byte saved is a victory against oblivion\", \"\", \"---\", {\"re\": \".*'ancient_fragment\\\\.txt'.*closed.*\", \"subject\": \"File 'ancient_fragment.txt' closed.\"}, \"\", \"Transform data:\", \"---\", \"\", \"[FRAGMENT 001] Digital preservation protocols established 2087#\", \"[FRAGMENT 002] Knowledge must survive the entropy wars#\", \"[FRAGMENT 003] Every byte saved is a victory against oblivion#\", \"\", \"---\", {\"re\": \".+\", \"subject\": \"Enter new file name (or empty): Not saving data.\"}]",
+                "want = [it for it in items if it != '']",
+                "got = [(n + 1, ln) for n, ln in enumerate(lines) if ln.strip()]",
+                "for i, it in enumerate(want):",
+                "    shown = it if isinstance(it, str) else it.get('subject', '/' + it['re'] + '/')",
+                "    assert i < len(got), 'expected %r\\n            got (end of output)' % shown",
+                "    n, ln = got[i]",
+                "    ok = ln == it if isinstance(it, str) else re.fullmatch(it['re'], ln) is not None",
+                "    after = ''.join('\\n  after: %r' % g for _, g in got[max(0, i - 2):i])",
+                "    assert ok, 'line %d: expected %r\\n            got %r%s' % (n, shown, ln, after)",
+                "    if not isinstance(it, str) and 'subject' in it and ln != it['subject']:",
+                "        note('line %d differs from the subject example (accepted): %r vs %r' % (n, ln, it['subject']))",
+                "assert len(got) == len(want), 'extra output from line %d: %r' % got[len(want)]",
+                "def gaps(seq):",
+                "    out, run = [], 0",
+                "    for x in seq:",
+                "        if x == '':",
+                "            run += 1",
+                "        else:",
+                "            out.append(run)",
+                "            run = 0",
+                "    return out",
+                "mine, theirs = gaps(lines), gaps(items)",
+                "for k in range(len(want)):",
+                "    if mine[k] != theirs[k]:",
+                "        note('blank lines differ from the subject example (layout, accepted): %d blank line(s) before line %d %r, the subject shows %d' % (mine[k], got[k][0], got[k][1], theirs[k]))",
+                "        break"
               ]
             }
           },
@@ -317,44 +324,37 @@
           },
           "match": {
             "stdout": {
-              "type": "lines",
-              "items": [
-                {
-                  "re": "=== .+ ===",
-                  "subject": "=== Cyber Archives Recovery & Preservation ==="
-                },
-                {
-                  "re": ".*'ancient_fragment\\.txt'.*",
-                  "subject": "Accessing file 'ancient_fragment.txt'"
-                },
-                "---",
-                "",
-                "[FRAGMENT 001] Digital preservation protocols established 2087",
-                "[FRAGMENT 002] Knowledge must survive the entropy wars",
-                "[FRAGMENT 003] Every byte saved is a victory against oblivion",
-                "",
-                "---",
-                {
-                  "re": ".*'ancient_fragment\\.txt'.*closed.*",
-                  "subject": "File 'ancient_fragment.txt' closed."
-                },
-                "",
-                "Transform data:",
-                "---",
-                "",
-                "[FRAGMENT 001] Digital preservation protocols established 2087#",
-                "[FRAGMENT 002] Knowledge must survive the entropy wars#",
-                "[FRAGMENT 003] Every byte saved is a victory against oblivion#",
-                "",
-                "---",
-                {
-                  "re": ".*'new_fragment\\.txt'.*",
-                  "subject": "Enter new file name (or empty): Saving data to 'new_fragment.txt'"
-                },
-                {
-                  "re": ".*'new_fragment\\.txt'.*",
-                  "subject": "Data saved in file 'new_fragment.txt'."
-                }
+              "type": "python",
+              "code": [
+                "import re",
+                "# the subject example line by line: a string is exact, {re, subject} holds values (another wording: warning); blank lines are layout (warning)",
+                "items = [{\"re\": \"=== .+ ===\", \"subject\": \"=== Cyber Archives Recovery & Preservation ===\"}, {\"re\": \".*'ancient_fragment\\\\.txt'.*\", \"subject\": \"Accessing file 'ancient_fragment.txt'\"}, \"---\", \"\", \"[FRAGMENT 001] Digital preservation protocols established 2087\", \"[FRAGMENT 002] Knowledge must survive the entropy wars\", \"[FRAGMENT 003] Every byte saved is a victory against oblivion\", \"\", \"---\", {\"re\": \".*'ancient_fragment\\\\.txt'.*closed.*\", \"subject\": \"File 'ancient_fragment.txt' closed.\"}, \"\", \"Transform data:\", \"---\", \"\", \"[FRAGMENT 001] Digital preservation protocols established 2087#\", \"[FRAGMENT 002] Knowledge must survive the entropy wars#\", \"[FRAGMENT 003] Every byte saved is a victory against oblivion#\", \"\", \"---\", {\"re\": \".*'new_fragment\\\\.txt'.*\", \"subject\": \"Enter new file name (or empty): Saving data to 'new_fragment.txt'\"}, {\"re\": \".*'new_fragment\\\\.txt'.*\", \"subject\": \"Data saved in file 'new_fragment.txt'.\"}]",
+                "want = [it for it in items if it != '']",
+                "got = [(n + 1, ln) for n, ln in enumerate(lines) if ln.strip()]",
+                "for i, it in enumerate(want):",
+                "    shown = it if isinstance(it, str) else it.get('subject', '/' + it['re'] + '/')",
+                "    assert i < len(got), 'expected %r\\n            got (end of output)' % shown",
+                "    n, ln = got[i]",
+                "    ok = ln == it if isinstance(it, str) else re.fullmatch(it['re'], ln) is not None",
+                "    after = ''.join('\\n  after: %r' % g for _, g in got[max(0, i - 2):i])",
+                "    assert ok, 'line %d: expected %r\\n            got %r%s' % (n, shown, ln, after)",
+                "    if not isinstance(it, str) and 'subject' in it and ln != it['subject']:",
+                "        note('line %d differs from the subject example (accepted): %r vs %r' % (n, ln, it['subject']))",
+                "assert len(got) == len(want), 'extra output from line %d: %r' % got[len(want)]",
+                "def gaps(seq):",
+                "    out, run = [], 0",
+                "    for x in seq:",
+                "        if x == '':",
+                "            run += 1",
+                "        else:",
+                "            out.append(run)",
+                "            run = 0",
+                "    return out",
+                "mine, theirs = gaps(lines), gaps(items)",
+                "for k in range(len(want)):",
+                "    if mine[k] != theirs[k]:",
+                "        note('blank lines differ from the subject example (layout, accepted): %d blank line(s) before line %d %r, the subject shows %d' % (mine[k], got[k][0], got[k][1], theirs[k]))",
+                "        break"
               ]
             }
           },
@@ -604,40 +604,37 @@
           },
           "match": {
             "stdout": {
-              "type": "lines",
-              "items": [
-                {
-                  "re": "=== .+ ===",
-                  "subject": "=== Cyber Archives Recovery & Preservation ==="
-                },
-                {
-                  "re": ".*'ancient_fragment\\.txt'.*",
-                  "subject": "Accessing file 'ancient_fragment.txt'"
-                },
-                "---",
-                "",
-                "[FRAGMENT 001] Digital preservation protocols established 2087",
-                "[FRAGMENT 002] Knowledge must survive the entropy wars",
-                "[FRAGMENT 003] Every byte saved is a victory against oblivion",
-                "",
-                "---",
-                {
-                  "re": ".*'ancient_fragment\\.txt'.*closed.*",
-                  "subject": "File 'ancient_fragment.txt' closed."
-                },
-                "",
-                "Transform data:",
-                "---",
-                "",
-                "[FRAGMENT 001] Digital preservation protocols established 2087#",
-                "[FRAGMENT 002] Knowledge must survive the entropy wars#",
-                "[FRAGMENT 003] Every byte saved is a victory against oblivion#",
-                "",
-                "---",
-                {
-                  "re": ".+",
-                  "subject": "Enter new file name (or empty): Not saving data."
-                }
+              "type": "python",
+              "code": [
+                "import re",
+                "# the subject example line by line: a string is exact, {re, subject} holds values (another wording: warning); blank lines are layout (warning)",
+                "items = [{\"re\": \"=== .+ ===\", \"subject\": \"=== Cyber Archives Recovery & Preservation ===\"}, {\"re\": \".*'ancient_fragment\\\\.txt'.*\", \"subject\": \"Accessing file 'ancient_fragment.txt'\"}, \"---\", \"\", \"[FRAGMENT 001] Digital preservation protocols established 2087\", \"[FRAGMENT 002] Knowledge must survive the entropy wars\", \"[FRAGMENT 003] Every byte saved is a victory against oblivion\", \"\", \"---\", {\"re\": \".*'ancient_fragment\\\\.txt'.*closed.*\", \"subject\": \"File 'ancient_fragment.txt' closed.\"}, \"\", \"Transform data:\", \"---\", \"\", \"[FRAGMENT 001] Digital preservation protocols established 2087#\", \"[FRAGMENT 002] Knowledge must survive the entropy wars#\", \"[FRAGMENT 003] Every byte saved is a victory against oblivion#\", \"\", \"---\", {\"re\": \".+\", \"subject\": \"Enter new file name (or empty): Not saving data.\"}]",
+                "want = [it for it in items if it != '']",
+                "got = [(n + 1, ln) for n, ln in enumerate(lines) if ln.strip()]",
+                "for i, it in enumerate(want):",
+                "    shown = it if isinstance(it, str) else it.get('subject', '/' + it['re'] + '/')",
+                "    assert i < len(got), 'expected %r\\n            got (end of output)' % shown",
+                "    n, ln = got[i]",
+                "    ok = ln == it if isinstance(it, str) else re.fullmatch(it['re'], ln) is not None",
+                "    after = ''.join('\\n  after: %r' % g for _, g in got[max(0, i - 2):i])",
+                "    assert ok, 'line %d: expected %r\\n            got %r%s' % (n, shown, ln, after)",
+                "    if not isinstance(it, str) and 'subject' in it and ln != it['subject']:",
+                "        note('line %d differs from the subject example (accepted): %r vs %r' % (n, ln, it['subject']))",
+                "assert len(got) == len(want), 'extra output from line %d: %r' % got[len(want)]",
+                "def gaps(seq):",
+                "    out, run = [], 0",
+                "    for x in seq:",
+                "        if x == '':",
+                "            run += 1",
+                "        else:",
+                "            out.append(run)",
+                "            run = 0",
+                "    return out",
+                "mine, theirs = gaps(lines), gaps(items)",
+                "for k in range(len(want)):",
+                "    if mine[k] != theirs[k]:",
+                "        note('blank lines differ from the subject example (layout, accepted): %d blank line(s) before line %d %r, the subject shows %d' % (mine[k], got[k][0], got[k][1], theirs[k]))",
+                "        break"
               ]
             }
           },
@@ -656,44 +653,37 @@
           },
           "match": {
             "stdout": {
-              "type": "lines",
-              "items": [
-                {
-                  "re": "=== .+ ===",
-                  "subject": "=== Cyber Archives Recovery & Preservation ==="
-                },
-                {
-                  "re": ".*'ancient_fragment\\.txt'.*",
-                  "subject": "Accessing file 'ancient_fragment.txt'"
-                },
-                "---",
-                "",
-                "[FRAGMENT 001] Digital preservation protocols established 2087",
-                "[FRAGMENT 002] Knowledge must survive the entropy wars",
-                "[FRAGMENT 003] Every byte saved is a victory against oblivion",
-                "",
-                "---",
-                {
-                  "re": ".*'ancient_fragment\\.txt'.*closed.*",
-                  "subject": "File 'ancient_fragment.txt' closed."
-                },
-                "",
-                "Transform data:",
-                "---",
-                "",
-                "[FRAGMENT 001] Digital preservation protocols established 2087#",
-                "[FRAGMENT 002] Knowledge must survive the entropy wars#",
-                "[FRAGMENT 003] Every byte saved is a victory against oblivion#",
-                "",
-                "---",
-                {
-                  "re": ".*'new_fragment\\.txt'.*",
-                  "subject": "Enter new file name (or empty): Saving data to 'new_fragment.txt'"
-                },
-                {
-                  "re": ".*'new_fragment\\.txt'.*",
-                  "subject": "Data saved in file 'new_fragment.txt'."
-                }
+              "type": "python",
+              "code": [
+                "import re",
+                "# the subject example line by line: a string is exact, {re, subject} holds values (another wording: warning); blank lines are layout (warning)",
+                "items = [{\"re\": \"=== .+ ===\", \"subject\": \"=== Cyber Archives Recovery & Preservation ===\"}, {\"re\": \".*'ancient_fragment\\\\.txt'.*\", \"subject\": \"Accessing file 'ancient_fragment.txt'\"}, \"---\", \"\", \"[FRAGMENT 001] Digital preservation protocols established 2087\", \"[FRAGMENT 002] Knowledge must survive the entropy wars\", \"[FRAGMENT 003] Every byte saved is a victory against oblivion\", \"\", \"---\", {\"re\": \".*'ancient_fragment\\\\.txt'.*closed.*\", \"subject\": \"File 'ancient_fragment.txt' closed.\"}, \"\", \"Transform data:\", \"---\", \"\", \"[FRAGMENT 001] Digital preservation protocols established 2087#\", \"[FRAGMENT 002] Knowledge must survive the entropy wars#\", \"[FRAGMENT 003] Every byte saved is a victory against oblivion#\", \"\", \"---\", {\"re\": \".*'new_fragment\\\\.txt'.*\", \"subject\": \"Enter new file name (or empty): Saving data to 'new_fragment.txt'\"}, {\"re\": \".*'new_fragment\\\\.txt'.*\", \"subject\": \"Data saved in file 'new_fragment.txt'.\"}]",
+                "want = [it for it in items if it != '']",
+                "got = [(n + 1, ln) for n, ln in enumerate(lines) if ln.strip()]",
+                "for i, it in enumerate(want):",
+                "    shown = it if isinstance(it, str) else it.get('subject', '/' + it['re'] + '/')",
+                "    assert i < len(got), 'expected %r\\n            got (end of output)' % shown",
+                "    n, ln = got[i]",
+                "    ok = ln == it if isinstance(it, str) else re.fullmatch(it['re'], ln) is not None",
+                "    after = ''.join('\\n  after: %r' % g for _, g in got[max(0, i - 2):i])",
+                "    assert ok, 'line %d: expected %r\\n            got %r%s' % (n, shown, ln, after)",
+                "    if not isinstance(it, str) and 'subject' in it and ln != it['subject']:",
+                "        note('line %d differs from the subject example (accepted): %r vs %r' % (n, ln, it['subject']))",
+                "assert len(got) == len(want), 'extra output from line %d: %r' % got[len(want)]",
+                "def gaps(seq):",
+                "    out, run = [], 0",
+                "    for x in seq:",
+                "        if x == '':",
+                "            run += 1",
+                "        else:",
+                "            out.append(run)",
+                "            run = 0",
+                "    return out",
+                "mine, theirs = gaps(lines), gaps(items)",
+                "for k in range(len(want)):",
+                "    if mine[k] != theirs[k]:",
+                "        note('blank lines differ from the subject example (layout, accepted): %d blank line(s) before line %d %r, the subject shows %d' % (mine[k], got[k][0], got[k][1], theirs[k]))",
+                "        break"
               ]
             }
           },
@@ -825,47 +815,37 @@
           },
           "match": {
             "stdout": {
-              "type": "lines",
-              "items": [
-                {
-                  "re": "=== .+ ===",
-                  "subject": "=== Cyber Archives Security ==="
-                },
-                "",
-                {
-                  "re": ".+",
-                  "subject": "Using 'secure_archive' to read from a nonexistent file:"
-                },
-                {
-                  "re": "\\(False, .*No such file or directory.*\\)",
-                  "subject": "(False, \"[Errno 2] No such file or directory: '/not/existing/file'\")"
-                },
-                "",
-                {
-                  "re": ".+",
-                  "subject": "Using 'secure_archive' to read from an inaccessible file:"
-                },
-                {
-                  "re": "\\(False, .+\\)"
-                },
-                "",
-                {
-                  "re": ".+",
-                  "subject": "Using 'secure_archive' to read from a regular file:"
-                },
-                {
-                  "re": "\\(True, .+\\)",
-                  "subject": "(True, '[FRAGMENT 001] Digital preservation protocols established 2087\\n[FRAGMENT 002] Knowledge must survive the entropy wars\\n[FRAGMENT 003] Every byte saved is a victory against oblivion\\n')"
-                },
-                "",
-                {
-                  "re": ".+",
-                  "subject": "Using 'secure_archive' to write previous content to a new file:"
-                },
-                {
-                  "re": "\\(True, .+\\)",
-                  "subject": "(True, 'Content successfully written to file')"
-                }
+              "type": "python",
+              "code": [
+                "import re",
+                "# the 4 calls of the subject, in this order: their tuples are required; the header must be a === ... === line; labels, blank lines, extra demo lines are layout (warning)",
+                "layout = [\"=== Cyber Archives Security ===\", \"\", \"Using 'secure_archive' to read from a nonexistent file:\", \"(False, \\\"[Errno 2] No such file or directory: '/not/existing/file'\\\")\", \"\", \"Using 'secure_archive' to read from an inaccessible file:\", \"(False, \\\"[Errno 13] Permission denied: '/etc/master.passwd'\\\")\", \"\", \"Using 'secure_archive' to read from a regular file:\", \"(True, '[FRAGMENT 001] Digital preservation protocols established 2087\\\\n[FRAGMENT 002] Knowledge must survive the entropy wars\\\\n[FRAGMENT 003] Every byte saved is a victory against oblivion\\\\n')\", \"\", \"Using 'secure_archive' to write previous content to a new file:\", \"(True, 'Content successfully written to file')\"]",
+                "import itertools",
+                "assert lines and re.fullmatch('=== .+ ===', lines[0]), 'line 1: expected %r\\n            got %r' % (layout[0], lines[0] if lines else '')",
+                "if lines[0] != layout[0]:",
+                "    note('line 1 differs from the subject example (accepted): %r vs %r' % (lines[0], layout[0]))",
+                "tup = [ln.strip() for ln in lines[1:] if re.fullmatch(r'\\((True|False), .+\\)', ln.strip())]",
+                "def enoent(t):",
+                "    return t.startswith('(False') and 'No such file or directory' in t",
+                "def cost(c):",
+                "    # nonexistent: (False, No such file); inaccessible: any (it depends on the machine); regular: (True, ...) or a file not here; write: (True, ...)",
+                "    gone, locked, regular, write = c",
+                "    if not enoent(gone) or not write.startswith('(True') or not (regular.startswith('(True') or enoent(regular)):",
+                "        return None",
+                "    return locked.startswith('(True') + regular.startswith('(False')",
+                "fits = sorted((cost(c), c) for c in itertools.combinations(tup, 4) if cost(c) is not None)",
+                "assert fits, 'the demo must print the 4 tuples of the subject, in this order: (False, \"[Errno 2] No such file...\") for a nonexistent file, (False, ...) for an inaccessible one, (True, content) for a regular file, (True, ...) for the write; tuples printed: %r' % tup",
+                "gone, locked, regular, write = fits[0][1]",
+                "if locked.startswith('(True'):",
+                "    note('the file the demo uses as inaccessible could be read here (it depends on the machine): %r' % locked[:120])",
+                "if regular.startswith('(False'):",
+                "    note('the demo reads a regular file that is not here (the tester runs it in an empty folder with only ancient_fragment.txt): %r' % regular)",
+                "if len(lines) != len(layout) or [ln == '' for ln in lines] != [ln == '' for ln in layout]:",
+                "    note('layout differs from the subject example (blank lines / extra lines, accepted): %d line(s), the subject shows %d' % (len(lines), len(layout)))",
+                "else:",
+                "    for n, (ln, ref) in enumerate(zip(lines, layout)):",
+                "        if ln and not ln.startswith('(') and ln != ref and n:",
+                "            note('line %d differs from the subject example (accepted): %r vs %r' % (n + 1, ln, ref))"
               ]
             }
           }

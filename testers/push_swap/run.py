@@ -385,7 +385,9 @@ def g_readme(ctx):
         text = fh.read()
     low = text.lower()
     first = next((ln for ln in text.splitlines() if ln.strip()), "")
-    m = re.search(r"curriculum by (.+?)[._*\s]*$", first)
+    # the subject allows the campus language: "currículo de 42 por ..."
+    m = re.search(r"(?:curriculum|cursus|curr[ií]culo)\b.*?\b(?:by|par|por)"
+                  r"\s+(.+?)[._*\s]*$", first, re.I)
     logins = []
     if m:
         logins = [x for x in re.split(r"[,\s]+(?:and\s+)?", m.group(1))
@@ -395,14 +397,16 @@ def g_readme(ctx):
                  f"found {logins or 'none'}; push_swap is a 2-learner project")
     rep.check("explains the algorithms (simple / medium / complex)",
               all(w in low for w in ("simple", "medium", "complex"))
-              or low.count("algorithm") >= 2,
+              or len(re.findall(r"algorit", low)) >= 2,
               detail="subject: detailed explanation + justification of "
                      "the algorithms selected")
     # 6.3.3: "You must document in your repository (e.g., README.md) the
     # rationale for your thresholds": another .md of the repository counts
     docs = low + "\n" + other_docs(ctx.ws.project)
     rep.check("documents the adaptive strategy + disorder thresholds",
-              "adaptive" in docs and "disorder" in docs,
+              bool(re.search(r"adapt(?:at)?i[vf]", docs))
+              and bool(re.search(r"disorder|d[ée]sordre|desorden|desordem",
+                                 docs)),
               detail="subject 6.3.3: rationale for the thresholds, internal "
                      "techniques per regime")
     if not re.search(r"0[.,]2|20 ?%", docs) \
@@ -412,8 +416,9 @@ def g_readme(ctx):
         rep.warn("no complexity bound (O(...)) found in README",
                  "subject: brief complexity argument (upper bounds) for "
                  "time and space")
-    contrib = re.search(r"contribut|who did what|r[ée]partition|"
+    contrib = re.search(r"contribu|who did what|r[ée]partition|reparto|"
                         r"division of (the )?(work|labou?r)|"
+                        r"divisi[oó]n del trabajo|divis[aã]o d[eo] trabalho|"
                         r"split of (the )?work|work split", low)
     rep.check("README documents each learner's contributions",
               bool(contrib), detail=None if contrib else
@@ -546,6 +551,15 @@ def g_errors(ctx):
                        ("args + string 5 \"3 2\" 1", ["5", "3 2", "1"])]:
         nums = [int(x) for a in argv for x in a.split()]
         out = Outcome(nums, argv, ctx.ps(argv))
+        # the subject defines no string argument: refusing one with Error
+        # is a choice, a wrong result on an accepted one is a bug
+        if (not out.ok and not out.res.out.strip()
+                and out.res.err.strip() == b"Error"):
+            rep.warn(f"{name} refused (Error)",
+                     f"input:   {ctx.cmd(argv)}\nthe subject does not "
+                     "define string arguments, so this is up to the "
+                     "evaluator")
+            continue
         rep.check(f"{name} sorts", out.ok,
                   detail=None if out.ok else out.detail(ctx))
     for name, argv in STRING_ERROR_CASES:
@@ -843,8 +857,17 @@ class Bench:
         m = re.search(r"strategy\s*:\s*(.+)", t)
         self.strategy = m.group(1).strip() if m else None
         self.klass = parse_class(self.strategy) if self.strategy else None
+        # the subject asks for "the total number of operations"; its example
+        # names it total_ops, another label is only reworded
         m = re.search(r"total_ops\s*:\s*(\d+)", t)
-        self.total = int(m.group(1)) if m else None
+        self.total_label = "total_ops" if m else None
+        if not m:
+            m = re.search(r"(total[ _-]*(?:op(?:eration)?s?|moves?)|"
+                          r"op(?:eration)?s[ _-]*total|"
+                          r"(?<![\w-])(?:op(?:eration)?s|moves))\s*:\s*(\d+)",
+                          t, re.I)
+            self.total_label = m.group(1) if m else None
+        self.total = int(m.groups()[-1]) if m else None
         pat = r"\b(" + "|".join(sim.OPS) + r")\s*:\s*(\d+)"
         self.counts = {op: int(v) for op, v in re.findall(pat, t)}
 
@@ -894,7 +917,16 @@ def check_bench(ctx, nums, flags, expect_name, expect_class, tag):
         elif expect_name.lower() not in b.strategy.lower():
             other = [s for s in ("Simple", "Medium", "Complex", "Adaptive")
                      if re.search(rf"\b{s}\b", name, re.I)]
-            if other:
+            picked = (expect_name == "Adaptive" and other
+                      and b.klass is not None and b.klass == expect_class)
+            if picked:
+                # names the method the adaptive picked for this disorder
+                # regime: the subject example says "Adaptive / O(...)"
+                warns.append(f"strategy {b.strategy!r}: names the method "
+                             "the adaptive strategy picked, the subject "
+                             "example shows \"Adaptive / "
+                             f"{sim.CLASS_NAMES[expect_class]}\"")
+            elif other:
                 probs.append(f"strategy {b.strategy!r}: {expect_name} was "
                              f"selected, the bench names {other[0]}")
             else:
@@ -918,6 +950,9 @@ def check_bench(ctx, nums, flags, expect_name, expect_class, tag):
         probs.append('no "total_ops: N" line')
     elif b.total != out.nops:
         probs.append(f"total_ops {b.total} but stdout has {out.nops} ops")
+    if b.total is not None and b.total_label != "total_ops":
+        warns.append(f"total named {b.total_label!r}, the subject example "
+                     "says \"total_ops\"")
     missing = [op for op in sim.OPS if op not in b.counts]
     if missing:
         probs.append("missing counters: " + ", ".join(missing))

@@ -1,7 +1,7 @@
 {
   "name": "42next",
   "version": "0.1.0",
-  "description": "Zero-config tester for 42 projects: libft, ft_printf, get_next_line, push_swap, Born2beRoot, NetPractice, Inception and the Python projects.",
+  "description": "Zero-config tester for 42 projects: libft, ft_printf, get_next_line, push_swap, Born2beRoot, NetPractice, Inception, A-Maze-ing, Pacman and the Python projects.",
   "bin": {
     "42next": "bin/42next.js"
   },
@@ -12,6 +12,6 @@
     "type": "git",
     "url": "https://github.com/maxencelobry/42next.git"
   },
-  "keywords": ["42", "42school", "tester", "libft", "ft_printf", "get_next_line", "push_swap", "born2beroot", "netpractice", "inception", "norminette"],
+  "keywords": ["42", "42school", "tester", "libft", "ft_printf", "get_next_line", "push_swap", "born2beroot", "netpractice", "inception", "a-maze-ing", "pacman", "norminette"],
   "license": "MIT"
 }

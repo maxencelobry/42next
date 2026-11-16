@@ -506,7 +506,8 @@ INSTRUCTIONS = [
 TEN = re.compile(r"\b(10|ten)\b|one\s+(exported\s+)?(file|config\w*|export)"
                  r"\s+(per|for\s+each)\s+level|level\s*0?1\b.{0,60}"
                  r"level\s*10\b", re.I | re.S)
-ROOT = re.compile(r"\broot\b", re.I)
+# the subject allows the campus language: root, racine, raiz / raíz, radice
+ROOT = re.compile(r"\b(root|racine|ra[ií]z|radice)\b", re.I)
 
 
 def md_headings(lines):

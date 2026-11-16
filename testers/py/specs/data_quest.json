@@ -1,7 +1,7 @@
 {
   "project": "data_quest",
   "title": "Data Quest",
-  "note": "Subject v2.0. argv/stdin exercises are compared to the subject line by line (\"mimic the example\": other wording is a warning, the values and the number of lines must match). The random ones (achievements, stream, alchemist) are parsed back (other labels are a warning) and recomputed (union, intersection, removals, average...). Source: authorized builtins (str/int/float for the whole module, each collection type once its exercise introduced it), allowed imports only, no open() (\"No file I/O operations are allowed\"), type hints, flake8, mypy.",
+  "note": "Subject v2.0. argv/stdin exercises are compared to the subject line by line (\"mimic the example\": other wording is a warning, the values and the number of lines must match). The random ones (achievements, stream, alchemist) are parsed back (achievements: run with a fixed random seed, so the result is the same on every run; an empty set is a valid draw) (other labels are a warning) and recomputed (union, intersection, removals, average...). Source: authorized builtins (str/int/float for the whole module, each collection type once its exercise introduced it), allowed imports only, no open() (\"No file I/O operations are allowed\"), type hints, flake8, mypy.",
   "exercises": [
     {
       "id": "ex0",
@@ -248,7 +248,7 @@
       ],
       "tests": [
         {
-          "name": "sets are consistent (union, intersection, differences)",
+          "name": "sets are consistent (union, intersection, differences), fixed random draw (seed 42)",
           "mode": "script",
           "match": {
             "exit_code": 0,
@@ -268,33 +268,52 @@
                 "            return",
                 "def a_set(ln):",
                 "    cut = [x for x in (ln.find('{'), ln.find('set()')) if x >= 0]",
-                "    assert cut, 'no set on the line: %r' % ln",
+                "    if not cut:",
+                "        return ln, None",
                 "    return ln[:min(cut)], parse(ln[min(cut):])",
                 "rows = [a_set(ln) for ln in lines[1:] if ln.strip()]",
                 "n = (len(rows) - 2) // 3",
-                "assert n >= 4 and len(rows) == 3 * n + 2, '%d set lines: the subject shows 4+ players, the distinct and common sets, then one \"only\" and one \"missing\" line per player' % len(rows)",
+                "if not (n >= 4 and len(rows) == 3 * n + 2):",
+                "    bad = [lab for lab, v in rows if v is None]",
+                "    assert not bad, 'no set on the line: %r' % bad[0]",
+                "    assert False, '%d set lines: the subject shows 4+ players, the distinct and common sets, then one \"only\" and one \"missing\" line per player' % len(rows)",
+                "def value(k, want):",
+                "    # an empty result is a valid draw (\"likely to be non-empty\"): shown as text instead of set(), it is a warning",
+                "    lab, got = rows[k]",
+                "    if got is None:",
+                "        assert not want, 'no set on the line: %r (expected %r)' % (lab, want)",
+                "        note('empty set shown as text, the subject example prints the set (set()): %r' % lab)",
+                "        return set()",
+                "    return got",
                 "labels = [lab for lab, _ in rows]",
                 "players = [v for _, v in rows[:n]]",
                 "names = [lab.rstrip().rstrip(':')[7:] if lab.startswith('Player ') else lab.rstrip().rstrip(':') for lab in labels[:n]]",
                 "labels_note(labels, ['Player %s: ' % x for x in names] + ['All distinct achievements: ', 'Common achievements: '] + ['Only %s has: ' % x for x in names] + ['%s is missing: ' % x for x in names])",
                 "assert all(type(p) is set for p in players), 'player lines must show sets'",
-                "assert rows[n][1] == set().union(*players), 'distinct != union of all sets'",
-                "assert rows[n + 1][1] == players[0].intersection(*players), 'common != intersection of all sets'",
+                "assert value(n, set().union(*players)) == set().union(*players), 'distinct != union of all sets'",
+                "common = players[0].intersection(*players)",
+                "assert value(n + 1, common) == common, 'common != intersection of all sets'",
                 "for k in range(n):",
                 "    others = set().union(*[players[o] for o in range(n) if o != k])",
-                "    assert rows[n + 2 + k][1] == players[k] - others, 'wrong \"Only %s has\"' % names[k]",
+                "    assert value(n + 2 + k, players[k] - others) == players[k] - others, 'wrong \"Only %s has\"' % names[k]",
                 "full = None",
                 "for k in range(n):",
-                "    miss = rows[2 * n + 2 + k][1]",
+                "    miss = value(2 * n + 2 + k, None)",
                 "    assert not miss & players[k], '%s: missing contains owned ones' % names[k]",
                 "    full = full or (miss | players[k])",
                 "    assert miss | players[k] == full, '%s: owned + missing != the full list' % names[k]"
               ]
             }
+          },
+          "fixtures": {
+            "_seed/sitecustomize.py": "# 42next: a fixed random draw, the same result on every run\nimport random\nrandom.seed(42)\nrandom.seed = lambda *args, **kwargs: None\n"
+          },
+          "env": {
+            "PYTHONPATH": "_seed"
           }
         },
         {
-          "name": "same check on another random draw",
+          "name": "same check on another fixed draw (seed 2026)",
           "mode": "script",
           "match": {
             "exit_code": 0,
@@ -314,29 +333,48 @@
                 "            return",
                 "def a_set(ln):",
                 "    cut = [x for x in (ln.find('{'), ln.find('set()')) if x >= 0]",
-                "    assert cut, 'no set on the line: %r' % ln",
+                "    if not cut:",
+                "        return ln, None",
                 "    return ln[:min(cut)], parse(ln[min(cut):])",
                 "rows = [a_set(ln) for ln in lines[1:] if ln.strip()]",
                 "n = (len(rows) - 2) // 3",
-                "assert n >= 4 and len(rows) == 3 * n + 2, '%d set lines: the subject shows 4+ players, the distinct and common sets, then one \"only\" and one \"missing\" line per player' % len(rows)",
+                "if not (n >= 4 and len(rows) == 3 * n + 2):",
+                "    bad = [lab for lab, v in rows if v is None]",
+                "    assert not bad, 'no set on the line: %r' % bad[0]",
+                "    assert False, '%d set lines: the subject shows 4+ players, the distinct and common sets, then one \"only\" and one \"missing\" line per player' % len(rows)",
+                "def value(k, want):",
+                "    # an empty result is a valid draw (\"likely to be non-empty\"): shown as text instead of set(), it is a warning",
+                "    lab, got = rows[k]",
+                "    if got is None:",
+                "        assert not want, 'no set on the line: %r (expected %r)' % (lab, want)",
+                "        note('empty set shown as text, the subject example prints the set (set()): %r' % lab)",
+                "        return set()",
+                "    return got",
                 "labels = [lab for lab, _ in rows]",
                 "players = [v for _, v in rows[:n]]",
                 "names = [lab.rstrip().rstrip(':')[7:] if lab.startswith('Player ') else lab.rstrip().rstrip(':') for lab in labels[:n]]",
                 "labels_note(labels, ['Player %s: ' % x for x in names] + ['All distinct achievements: ', 'Common achievements: '] + ['Only %s has: ' % x for x in names] + ['%s is missing: ' % x for x in names])",
                 "assert all(type(p) is set for p in players), 'player lines must show sets'",
-                "assert rows[n][1] == set().union(*players), 'distinct != union of all sets'",
-                "assert rows[n + 1][1] == players[0].intersection(*players), 'common != intersection of all sets'",
+                "assert value(n, set().union(*players)) == set().union(*players), 'distinct != union of all sets'",
+                "common = players[0].intersection(*players)",
+                "assert value(n + 1, common) == common, 'common != intersection of all sets'",
                 "for k in range(n):",
                 "    others = set().union(*[players[o] for o in range(n) if o != k])",
-                "    assert rows[n + 2 + k][1] == players[k] - others, 'wrong \"Only %s has\"' % names[k]",
+                "    assert value(n + 2 + k, players[k] - others) == players[k] - others, 'wrong \"Only %s has\"' % names[k]",
                 "full = None",
                 "for k in range(n):",
-                "    miss = rows[2 * n + 2 + k][1]",
+                "    miss = value(2 * n + 2 + k, None)",
                 "    assert not miss & players[k], '%s: missing contains owned ones' % names[k]",
                 "    full = full or (miss | players[k])",
                 "    assert miss | players[k] == full, '%s: owned + missing != the full list' % names[k]"
               ]
             }
+          },
+          "fixtures": {
+            "_seed/sitecustomize.py": "# 42next: a fixed random draw, the same result on every run\nimport random\nrandom.seed(2026)\nrandom.seed = lambda *args, **kwargs: None\n"
+          },
+          "env": {
+            "PYTHONPATH": "_seed"
           }
         },
         {
@@ -345,7 +383,13 @@
           "code": [
             "s = m.gen_player_achievements()",
             "assert type(s) is set, 'must return a set, got %r' % type(s)"
-          ]
+          ],
+          "fixtures": {
+            "_seed/sitecustomize.py": "# 42next: a fixed random draw, the same result on every run\nimport random\nrandom.seed(42)\nrandom.seed = lambda *args, **kwargs: None\n"
+          },
+          "env": {
+            "PYTHONPATH": "_seed"
+          }
         }
       ],
       "imports": [

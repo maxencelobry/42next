@@ -68,7 +68,8 @@ const C_PROJECTS = [
   {
     id: 'printf', name: 'ft_printf', group: 'C', tester: 'printf/run.py',
     score: (d) => (/libftprintf\.a/.test(read(path.join(d, 'Makefile'))) ? 50 : 0)
-      + (findFile(d, (n, p) => n.endsWith('.h') && /ft_printf\s*\(/.test(read(p))) && exists(d, 'Makefile') ? 30 : 0),
+      // the cheap test first: findFile reads every .h two levels down
+      + (exists(d, 'Makefile') && findFile(d, (n, p) => n.endsWith('.h') && /ft_printf\s*\(/.test(read(p))) ? 30 : 0),
   },
   {
     id: 'gnl', name: 'get_next_line', group: 'C', tester: 'gnl/run.py',
@@ -109,6 +110,17 @@ function pyScore(d, spec) {
   return spec.exercises.filter((ex) => exists(d, ex.file)).length;
 }
 
+// Folders never scanned: a drive root, the home folder and its parents, and
+// the Windows home seen from WSL (/mnt/c/Users/<name>). Reading every file
+// two levels down there (AppData...) takes minutes, and no project lives
+// directly in them.
+const HOME_UP = new Set();
+for (let p = HOME; ; p = path.dirname(p)) { HOME_UP.add(p); if (path.dirname(p) === p) break; }
+const tooBig = (d) => HOME_UP.has(d) || path.dirname(d) === d
+  || /^\/mnt(\/[a-z](\/Users(\/[^/]+)?)?)?\/?$/i.test(d)
+  || /^[a-z]:[\\/](Users([\\/][^\\/]+)?)?[\\/]?$/i.test(d)
+  || /^\/Users(\/[^/]+)?\/?$/.test(d);
+
 // Look around `start`: itself, its parents (when run from ex3/ or src/), its
 // children and grandchildren (when run from ~/doc/cc/libft with the repo inside).
 function detect(start) {
@@ -120,7 +132,7 @@ function detect(start) {
 
   const found = [];
   for (const d of dirs) {
-    if (d === HOME || d === '/') continue;
+    if (tooBig(d)) continue;
     for (const proj of C_PROJECTS) {
       const s = proj.score(d);
       if (s >= (proj.id === 'libft' ? 10 : 50)) found.push({ ...proj, dir: d, s, kind: 'c' });
@@ -671,8 +683,12 @@ function update(force = false) {
   if (!behind || behind === '0') { if (force) console.log(green('42next is up to date')); return; }
   // local, no timeout: a merge killed halfway leaves a lock behind
   const r = git('merge', '--ff-only', '--quiet', '@{u}');
-  if (r.status === 0) console.log(green(`42next updated (${behind} new commit${behind === '1' ? '' : 's'}): `) + dim(git('log', '-1', '--format=%s').stdout.trim()));
-  else if (force) console.log(red('update failed: ') + (r.stderr || '').trim());
+  if (r.status === 0) {
+    console.log(green(`42next updated (${behind} new commit${behind === '1' ? '' : 's'}): `) + dim(git('log', '-1', '--format=%s').stdout.trim()));
+    // this process still runs the old code: let the new one finish the
+    // install now (shortcuts, folder move), not at the next command
+    spawnSync(process.execPath, [path.join(ROOT, 'bin', '42next.js'), '--post-update'], { stdio: 'inherit', env: { ...process.env, NEXT_NO_UPDATE: '1' } });
+  } else if (force) console.log(red('update failed: ') + (r.stderr || '').trim());
 }
 
 // A git killed halfway (closed terminal, timeout) can leave *.lock files, and
@@ -782,6 +798,7 @@ async function main() {
   const cwd = process.cwd();
   migrate();
   shortcuts();
+  if (args[0] === '--post-update') return;   // run by update() with the new code
   if (flags.includes('-h') || flags.includes('--help') || words[0] === 'help') return console.log(HELP);
   if (words[0] === 'update') return update(true);
   update();

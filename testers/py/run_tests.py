@@ -2250,8 +2250,10 @@ def main(argv=None):
 
     rep = core.Report(verbose=args.verbose,
                       group_ids={ex["id"] for ex in exercises})
+    version = re.match(r"Subject v([\d.]*\d)", spec.get("note", ""))
     core.header(spec.get("title", spec["project"]), project,
-                spec.get("note"), args.verbose)
+                spec.get("note"), args.verbose,
+                subject=version.group(1) if version else None)
     if getattr(args, "quick", False):
         core.quick_skip(rep, "no mypy")
     if auto_note:

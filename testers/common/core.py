@@ -137,13 +137,23 @@ def selected(args, gid):
 #   SKIP  a tool is missing, or the part was skipped on purpose (--quick)
 
 
-def header(title, project, note=None, verbose=False):
-    """First lines of every tester: what is tested, where."""
+SUBJECT = None     # version of the subject the checks follow (header())
+
+
+def header(title, project, note=None, verbose=False, subject=None):
+    """First lines of every tester: what is tested, which subject, where.
+
+    The subject version is always shown: the checks follow that PDF, and a
+    student with another version knows where a difference may come from.
+    """
     home = os.path.expanduser("~")
     where = "~" + project[len(home):] if project.startswith(home) else project
     # The menu sets it when it tests a temporary export of the last commit.
     where = os.environ.get("NEXT42_PROJECT_LABEL") or where
-    print(f"{bold(title)}  {dim(where)}")
+    global SUBJECT
+    SUBJECT = subject
+    version = f"subject v{subject}  " if subject else ""
+    print(f"{bold(title)}  {dim(version + where)}")
     if note and verbose:
         print(dim(note))
 
@@ -172,6 +182,7 @@ class Report:
         self.group_ids = GROUP_IDS if group_ids is None else set(group_ids)
         self.current_gid = None
         self.failed_gids = []   # group id (or None) of each failed section
+        self.old = []           # signs of an older subject (old_subject())
 
     def section(self, name, gid=None):
         self._close()
@@ -231,10 +242,29 @@ class Report:
     def info(self, text):
         print(f"       {dim(text)}")
 
+    def old_subject(self, what):
+        """Note something written for an older version of the subject.
+
+        The checks follow the current subject only. finish() lists these
+        notes together, so the student sees at once that their project
+        follows an older PDF. The check itself is reported as usual (KO when
+        the current subject forbids it).
+        """
+        if what not in self.old:
+            self.old.append(what)
+
     def finish(self):
         self._close()
         ok = sum(s[1] for s in self.sections)
         ko = sum(s[2] for s in self.sections)
+        if self.old:
+            print()
+            current = f"subject v{SUBJECT}" if SUBJECT else "the subject"
+            print(f"  {red('older subject:')} this project follows an older "
+                  f"version of the subject, 42next checks {current}:")
+            for what in self.old:
+                print(f"       - {what}")
+            print(f"       {dim('get the current subject PDF on the intra')}")
         if MISSING:
             print()
             print(f"  {yellow('missing:')} {', '.join(sorted(MISSING))} "
@@ -767,6 +797,18 @@ def makefile_targets(text):
     return targets
 
 
+def _rule_for_file(text, targets, name):
+    """The target that builds `name` without NAME: '$(TARGET)' or 'libft.a'."""
+    if name in targets:
+        return name
+    for m in re.finditer(r"^\s*(\w+)\s*(?::::=|::=|:=|\?=|=)\s*(\S+)\s*$",
+                         text, re.M):
+        var, value = m.group(1), m.group(2)
+        if var != "NAME" and value == name and f"$({var})" in targets:
+            return f"$({var})"
+    return None
+
+
 def _artifacts(directory):
     found = []
     for root, dirs, files in os.walk(directory):
@@ -841,9 +883,15 @@ def check_makefile(rep, ws_dir, name, rules=("$(NAME)", "all", "clean",
     targets = makefile_targets(text)
     missing = [r for r in list(rules) + list(extra_rules)
                if _same_var(r) not in targets]
+    detail = f"missing: {', '.join(missing)}" if missing else None
+    # The rule is there under another name ($(TARGET) = libft.a): say so.
+    other = (_rule_for_file(text, targets, name)
+             if "$(NAME)" in missing else None)
+    if other and detail:
+        detail += (f"\nthe {name} rule is {other}: the subject wants it "
+                   f"named $(NAME), with NAME = {name}")
     rep.check(f"rules: {', '.join(list(rules) + list(extra_rules))}",
-              not missing,
-              detail=f"missing: {', '.join(missing)}" if missing else None)
+              not missing, detail=detail)
 
     m = re.search(r"^\s*CC\s*[:?]?=\s*(\S+)", text, re.M)
     cc = m.group(1) if m else None

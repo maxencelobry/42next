@@ -13,6 +13,7 @@
 - Memory checks: only where Tripouille, francinette and 42-cli look (the moulinette does not look elsewhere). That means valgrind on each test binary, per-case leak tracking (malloc wrapper), and ASan as a fallback when valgrind is missing.
 - Never modify the tested project: build and run in a temporary copy (`core.Workspace`). Never leave `__pycache__` / `.mypy_cache` behind (`python -B`, mypy cache in /tmp).
 - New projects are added as the owner progresses in the Common Core, when they drop the subject PDF in ~/Downloads.
+- Only the current subject counts (the owner, 2026-11-20). Something from an older subject is a KO wherever the current subject says otherwise, and is noted with `rep.old_subject(...)` so `finish()` lists it under "older subject". Pass the version to `core.header(..., subject="1.3")` (Python specs: the "Subject vX" at the start of `note`). An extra the current subject does not forbid (a `bonus` rule) is only listed there, not a KO.
 
 ## Severity, the same in every tester
 

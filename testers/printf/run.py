@@ -702,6 +702,7 @@ def group_bonus(rep, ws, b, seed, vg_on=False, use_asan=False):
         rep.skip("bonus tests", "no bonus rule in the Makefile (subject "
                  "v1.1 has no bonus part)")
         return
+    rep.old_subject("a bonus rule in the Makefile: v1.1 has no bonus part")
     if not b.bonus:
         rep.warn("make bonus fails (no bonus part in subject v1.1)",
                  b.bonus_error)
@@ -738,7 +739,7 @@ def main():
         if not core.have(tool):
             print(core.red(f"{tool} is required"))
             return 2
-    core.header("ft_printf tester", project)
+    core.header("ft_printf tester", project, subject="1.1")
     print(core.dim(f"random cases use seed {seed} "
                    f"(rerun the same ones with --seed {seed})"))
     rep = core.Report(verbose=args.verbose)

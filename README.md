@@ -123,8 +123,10 @@ relink), forbidden functions and the README.
 
 ## Details
 
-Every check comes from the subject. A failure shows the exact call, the
-expected output and yours.
+Every check comes from the current subject, and the first line of a run
+shows its version. A failure shows the exact call, the expected output and
+yours. A project made for an older subject gets a KO where the current one
+differs, and the end of the run lists what comes from the old one.
 
 - `KO`: the subject requires it.
 - `WARN`: up to your evaluator.

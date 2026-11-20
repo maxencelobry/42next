@@ -3188,7 +3188,7 @@ def main():
     if not os.path.isdir(args.project):
         print(core.red(f"project directory not found: {args.project}"))
         return 2
-    core.header("Inception", args.project)
+    core.header("Inception", args.project, subject="1.1")
     proj = Project(args.project)
     rep = core.Report(verbose=args.verbose)
     want = core.selected

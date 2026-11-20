@@ -2894,7 +2894,7 @@ def main() -> int:
     if not os.path.isdir(args.project):
         print(core.red(f"project directory not found: {args.project}"))
         return 2
-    core.header("Pacman", args.project,
+    core.header("Pacman", args.project, subject="1.1",
                 note="runtime checks: headless, in a temporary copy and "
                      "venv", verbose=args.verbose)
     proj = Project(args.project)

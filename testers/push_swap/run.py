@@ -1045,6 +1045,9 @@ def g_strategies(ctx):
                   f"{', '.join(map(str, sizes))}",
                   not bad, detail=None if not bad else
                   f"{len(bad)} failing; first:\n" + bad[0].detail(ctx))
+    if all(table[(st, n)] is None for st in STRATEGIES for n in sizes):
+        rep.old_subject("no --simple / --medium / --complex / --adaptive "
+                        "selector: v1.2 asks for the four strategies")
     rep.info("average ops (random + reversed):")
     rep.info(f"{'':>10}" + "".join(f"{n:>10}" for n in sizes)
              + "   ratio 500/100")
@@ -1201,6 +1204,7 @@ def g_checker(ctx):
     if not chk:
         rep.skip("bonus checker", "no ./checker built (no bonus part in v1.2)")
         return
+    rep.old_subject("a bonus ./checker: v1.2 has no bonus part")
     test_bonus_checker(ctx, chk)
 
 
@@ -1334,7 +1338,7 @@ def main():
     sel = (lambda g: core.selected(args, g)
            and (g != "perf" or "perf" in args.only or opts.size is not None))
     needs_bin = [g for g, _ in GROUPS if g not in ("norm", "readme", "repo")]
-    core.header("push_swap", args.project)
+    core.header("push_swap", args.project, subject="1.2")
     if opts.quick:
         core.quick_skip(rep, "no valgrind, p100 3 runs, p500 1 run, "
                         "24 of the 120 five-number permutations")

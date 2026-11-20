@@ -274,6 +274,14 @@ def check_files(rep, project, ws_dir):
     rep.check(f"the {len(FUNCS)} functions are defined in the .c files",
               not missing,
               detail=("not found: " + ", ".join(missing)) if missing else None)
+    bonus_files = [f for f in names if f.endswith("_bonus.c")]
+    if bonus_files:
+        rep.old_subject("*_bonus.c files (" + ", ".join(bonus_files[:3])
+                        + (", ..." if len(bonus_files) > 3 else "")
+                        + "): v1.3 has no bonus part")
+    if "bonus" in core.makefile_targets(core.makefile_text(project) or ""):
+        rep.old_subject("a bonus rule in the Makefile: v1.3 has no bonus "
+                        "part")
 
     # "Place all your files at the root": no source in sub folders
     nested = []
@@ -311,6 +319,21 @@ def check_files(rep, project, ws_dir):
     check_prototypes(rep, htext, ws_dir)
 
 
+def signed_only(conflicts, ws_dir, probe):
+    """Conflicts that go away when 'unsigned int' is read as 'int'."""
+    cand = [f for f in conflicts
+            if PROTOTYPES.get(f, "").startswith("unsigned int ")]
+    if not cand:
+        return []
+    with open(probe, "w") as fh:
+        fh.write('#include "libft.h"\n' + "\n".join(
+            PROTOTYPES[f][len("unsigned "):] + ";" for f in cand) + "\n")
+    res = core.run(["cc", "-fsyntax-only", "-I", ws_dir, probe], timeout=60)
+    still = set(re.findall(r"conflicting types for [‘'\"](\w+)",
+                           text_of(res)))
+    return [f for f in cand if f not in still]
+
+
 def check_prototypes(rep, htext, ws_dir):
     clean = re.sub(r"/\*.*?\*/", "", htext, flags=re.S)
     clean = re.sub(r"//[^\n]*", "", clean)
@@ -337,6 +360,10 @@ def check_prototypes(rep, htext, ws_dir):
     struct_bad = bool(re.search(r"unknown type name [‘'\"]t_list|"
                                 r"has no member named|no member named", out))
     other = res.rc != 0 and not conflicts and not struct_bad
+    # int ft_lstsize: the prototype of the older subject (lists in the bonus
+    # part). Still a KO, and listed with the other signs of an old subject.
+    for f in signed_only(conflicts, ws_dir, probe):
+        rep.old_subject(f"{f} returns int (v1.3: unsigned int)")
     if conflicts:
         lines = []
         for f in conflicts:
@@ -742,6 +769,8 @@ def test_functions(rep, ws, funcs, state, args):
                 why += ("\nsubject v1.3: the linked lists are Part 3 of the "
                         "mandatory part, `make` must build them (no bonus "
                         "rule)")
+                rep.old_subject("linked lists not built by `make` (v1.3: "
+                                "Part 3 of the mandatory part)")
             rep.check(f"{func} found in libft.a", False, detail=why)
             continue
         if func not in cases:
@@ -807,7 +836,7 @@ def main():
         print(core.red("cc not found"))
         return 2
     rep = core.Report(verbose=args.verbose)
-    core.header("libft", args.project)
+    core.header("libft", args.project, subject="1.3")
     if args.quick:
         core.quick_skip(rep, "no valgrind")
 

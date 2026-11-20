@@ -974,6 +974,10 @@ def check_mode(ctx, case, m, L, where):
            detail=None if ok else where)
         return
     ok = m.cycles >= 2
+    if not ok:
+        rep.old_subject("PERFECT=False gives a plain maze, not a Pac-Man "
+                        "board (v1.5: two loops or more, open corners and "
+                        "centre, rare dead-ends)")
     ko(rep, f"{L}: at least two independent loops", ok, "loops",
        expected=">= 2 independent loops",
        got=None if ok else f"{max(m.cycles, 0)} loop(s) ({m.edges} open "
@@ -2756,7 +2760,7 @@ def main():
     if not os.path.isdir(args.project):
         print(core.red(f"project directory not found: {args.project}"))
         return 2
-    core.header("A-Maze-ing", args.project,
+    core.header("A-Maze-ing", args.project, subject="1.5",
                 note="python3 a_maze_ing.py <config> in a pseudo-terminal, "
                      "inside a temporary copy", verbose=args.verbose)
     rep = core.Report(verbose=args.verbose)

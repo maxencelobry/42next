@@ -606,9 +606,17 @@ def group_files(rep, ws):
                           r"\)\s*;", text)
         rep.check("get_next_line.h contains char *get_next_line(int fd);",
                   bool(proto))
+    # "Files to Submit: get_next_line.c, get_next_line_utils.c,
+    # get_next_line.h": the *_bonus files of the older subject are not in it
     present = [f for f in BONUS if os.path.isfile(ws.path(f))]
+    rep.check("no *_bonus file (not in the files to submit of v1.3)",
+              not present, got=", ".join(present) if present else None,
+              detail="Files to Submit: get_next_line.c, "
+                     "get_next_line_utils.c, get_next_line.h (the bonus part "
+                     "is from an older subject)" if present else None)
     if present:
-        rep.info("bonus files: " + ", ".join(present))
+        rep.old_subject("*_bonus files (" + ", ".join(present)
+                        + "): v1.3 has no bonus part")
 
 
 def group_basic(ctx):
@@ -1076,7 +1084,7 @@ def main():
         return 2
     quick = getattr(args, "quick", False)
     args.quick = quick
-    core.header("get_next_line tester", project)
+    core.header("get_next_line tester", project, subject="1.3")
     rep = core.Report(verbose=args.verbose)
     rep.alias.update(SECTION_GROUPS)
     sizes = QUICK_SIZES if quick else SIZES

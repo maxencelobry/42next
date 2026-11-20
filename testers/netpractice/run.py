@@ -644,7 +644,7 @@ def main():
     if not os.path.isdir(args.project):
         print(core.red(f"project directory not found: {args.project}"))
         return 2
-    core.header("NetPractice", args.project)
+    core.header("NetPractice", args.project, subject="1.4")
     scan = Scan(args.project)
     if core.selected(args, "files"):
         group_files(rep, scan)

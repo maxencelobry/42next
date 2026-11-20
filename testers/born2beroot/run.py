@@ -322,7 +322,7 @@ def main():
     if not os.path.isdir(args.project):
         print(core.red(f"project directory not found: {args.project}"))
         return 2
-    core.header("Born2beRoot", args.project)
+    core.header("Born2beRoot", args.project, subject="1.3")
     if core.selected(args, "signature"):
         group_signature(rep, args.project, opts)
     if core.selected(args, "repo"):

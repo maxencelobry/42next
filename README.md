@@ -85,6 +85,9 @@ Shorter: `42n` is the same command, and `42` too when no other tool (like
 | `42next list` | list what can be tested |
 | `42next watch ft_split` | test again each time you save a file |
 | `42next commit` | test the last git commit only: what is graded |
+| `42next failed` | run again only the parts that failed last time |
+| `42next lint` | Python: flake8 + mypy only. C: norminette only |
+| `42next perf 500 20` | push_swap: benchmark 500 numbers, 20 runs |
 | `42next clean` | delete `__pycache__`, `.mypy_cache`, `.o`, `a.out`... in the project |
 | `42next clean-pc` | free disk space: caches, old versions, trash |
 | `42next update` | get the latest tests now (also automatic, once a day) |

@@ -213,10 +213,11 @@ const LAST = path.join(HOME, '.cache', '42next-last.json');
 function lastJob(dir) {
   try { return JSON.parse(read(LAST))[dir] || null; } catch { return null; }
 }
-function saveJob(dir, job) {
+// failed: the group ids that failed in that job, null when the tester could not tell
+function saveJob(dir, job, failed) {
   let all = {};
   try { all = JSON.parse(read(LAST)); } catch { /* first one */ }
-  all[dir] = { only: job.only, extra: job.extra, commit: !!job.commit };
+  all[dir] = { only: job.only, extra: job.extra, commit: !!job.commit, ...(failed !== undefined ? { failed } : {}) };
   try { fs.mkdirSync(path.dirname(LAST), { recursive: true }); fs.writeFileSync(LAST, JSON.stringify(all)); } catch { /* read-only home */ }
 }
 
@@ -242,7 +243,7 @@ const inGit = (dir) => gitIn(dir, ['rev-parse', '--is-inside-work-tree']).stdout
 
 // Run a job. Returns { status, failed } where failed is the list of the
 // group ids that failed, or null when the tester could not tell.
-function runJob(p, job) {
+function runJob(p, job, menu = true) {
   saveJob(p.dir, job);
   const out = path.join(os.tmpdir(), `42next-failed-${process.pid}`);
   const env = { NEXT42_FAILED: out };
@@ -257,7 +258,7 @@ function runJob(p, job) {
     target = { ...p, dir: exp.tmp };
     env.NEXT42_PROJECT_LABEL = `${short(p.dir)}  @ ${exp.head.split(' ')[0]}`;
   }
-  console.log(dim(' ctrl-c stops the test and brings you back'));
+  if (menu) console.log(dim(' ctrl-c stops the test and brings you back'));
   try { fs.rmSync(out, { force: true }); } catch { /* nothing */ }
   const status = runTester(target, job.only, [...job.extra, ...(job.keep ? ['--keep'] : [])], env);
   if (exp) fs.rmSync(exp.tmp, { recursive: true, force: true });
@@ -267,6 +268,7 @@ function runJob(p, job) {
     failed = fs.existsSync(out) && !lines.includes('*') ? lines : null;
     fs.rmSync(out, { force: true });
   } catch { /* no result file */ }
+  if (status !== 130) saveJob(p.dir, job, status === 0 ? [] : failed);
   return { status, failed };
 }
 
@@ -766,6 +768,9 @@ Shorter: 42n (and 42 when no other tool uses that name) is the same command.
   42next list              list the testable parts of the detected project
   42next watch [part...]   run again each time you save a file
   42next commit [part...]  test the last git commit only (what is graded)
+  42next failed            run again only the parts that failed last time
+  42next lint [part...]    Python: flake8 + mypy only. C: norminette only
+  42next perf 500 20       push_swap: benchmark 500 numbers, 20 runs
   42next clean             clean the project (__pycache__, .mypy_cache, .o...)
   42next clean-pc          clean caches on this computer
   42next update            get the latest tests now (also automatic, once a day)
@@ -810,8 +815,8 @@ async function main() {
   }
   if (!args.length) return mainMenu(cwd);
 
-  const cmd = ['all', 'quick', 'list', 'watch', 'commit', 'clean'].includes(words[0]) ? words[0] : '';
-  const names = cmd ? words.slice(1) : words;
+  const cmd = ['all', 'quick', 'list', 'watch', 'commit', 'clean', 'failed', 'lint'].includes(words[0]) ? words[0] : '';
+  let names = cmd ? words.slice(1) : words;
   // a file or folder given: look for the project around it
   const file = names.find((w) => fs.existsSync(w));
   const start = file ? path.dirname(path.resolve(file)) : cwd;
@@ -820,8 +825,21 @@ async function main() {
   const p = found[0];
   if (cmd === 'clean') return cleanProject(p.dir);
   if (cmd === 'list') return (groups(p) || []).forEach((g) => console.log(`${g.id.padEnd(16)} ${dim(g.label)}`));
+  if (cmd === 'failed') {
+    const last = lastJob(p.dir);
+    if (!last || !('failed' in last)) { console.log(yellow(`No finished run of ${p.name} yet: run 42next first.`)); process.exit(2); }
+    if (Array.isArray(last.failed) && !last.failed.length) { console.log(green(`Nothing failed in the last run of ${p.name} (${jobText(last)}).`)); return; }
+    // null: a failed check has no part of its own, so the whole job runs again
+    const job = { only: last.failed || last.only, extra: [...last.extra, ...flags.filter((f) => !last.extra.includes(f))], commit: last.commit };
+    console.log(dim(` running again: ${jobText(job)}`));
+    process.exit(runJob(p, job, false).status ?? 2);
+  }
 
   let only = [];
+  // push_swap: `42next perf 500 20` is the custom benchmark (size, runs)
+  const nums = p.id === 'push_swap' ? names.filter((w) => /^\d+$/.test(w) && !fs.existsSync(w)) : [];
+  const bench = nums.length ? ['--size', nums[0], '--runs', nums[1] || '20'] : [];
+  if (nums.length) { names = names.filter((w) => !nums.includes(w)); if (!names.includes('perf')) names.push('perf'); }
   if (names.length) {
     const gs = groups(p) || [];
     for (const w of names) {
@@ -831,10 +849,14 @@ async function main() {
     }
     if (!only.length) process.exit(2);
   }
-  const extra = cmd === 'quick' && !flags.includes('--quick') ? ['--quick', ...flags] : flags;
+  let extra = [...(cmd === 'quick' && !flags.includes('--quick') ? ['--quick', ...flags] : flags), ...bench];
+  if (cmd === 'lint') {
+    if (p.kind === 'py') extra = ['--lint-only', ...flags];
+    else if ((groups(p) || []).some((g) => g.id === 'norm')) only = ['norm'];
+    else { console.log(yellow(`${p.name} has no lint check.`)); process.exit(2); }
+  }
   if (cmd === 'watch') return watch(p, { only, extra });
-  if (cmd === 'commit') process.exit(runJob(p, { only, extra, commit: true }).status ?? 2);
-  process.exit(runTester(p, only, extra) ?? 2);
+  process.exit(runJob(p, { only, extra, commit: cmd === 'commit' }, false).status ?? 2);
 }
 
 // output piped into `head` or a closed terminal: stop quietly, no stack trace

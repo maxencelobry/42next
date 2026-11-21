@@ -377,10 +377,9 @@ def g_functions(ctx, binaries):
 def g_readme(ctx):
     rep = ctx.rep
     rep.section("readme")
-    core.check_readme(rep, ctx.ws.project)
-    path = os.path.join(ctx.ws.project, "README.md")
-    if not os.path.isfile(path):
+    if not core.check_readme(rep, ctx.ws.project):
         return
+    path = os.path.join(ctx.ws.project, "README.md")
     with open(path, encoding="utf-8", errors="replace") as fh:
         text = fh.read()
     low = text.lower()

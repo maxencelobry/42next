@@ -610,15 +610,18 @@ def run_test_groups(rep, ws, build, args, seed):
     if conv_sel:
         binary, err = (None, b.error) if not b.mand else \
             compile_runner(ws, mand, b.mand, "mandatory", asan)
+        if not binary:
+            # one KO: no conversion can run without the test program
+            rep.section("build the test program")
+            rep.check("the test program builds with libftprintf.a", False,
+                      detail=core.short_errors(err or ""))
+            rep.skip(f"the {len(conv_sel)} conversion groups",
+                     "the test program does not build",
+                     count=len(conv_sel))
+            conv_sel = []
         first_err = True
         for g, lbl in conv_sel:
             rep.section(lbl)
-            if not binary:
-                rep.check("build the test program", False,
-                          detail=core.short_errors(err or "") if first_err
-                          else "same error as above")
-                first_err = False
-                continue
             if first_err and not WRAP_OK:
                 rep.skip("per-call leak tracking", NO_WRAP_WHY)
             first_err = False
@@ -767,8 +770,8 @@ def main():
             group_functions(rep, ws, build)
         if core.selected(args, "readme"):
             rep.section("README.md")
-            core.check_readme(rep, project)
-            check_readme_algo(rep, project, data_structure=True)
+            if core.check_readme(rep, project):
+                check_readme_algo(rep, project, data_structure=True)
         if core.selected(args, "repo"):
             rep.section("repository")
             core.check_repo(rep, project, binaries=(NAME,))

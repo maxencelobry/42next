@@ -1199,14 +1199,25 @@ SECTION_TRANSLATIONS = {
 
 
 def check_readme(rep, project, extra_sections=()):
-    """README.md rules shared by the current Common Core subjects."""
+    """README.md rules shared by the current Common Core subjects.
+
+    Returns False when README.md is missing or empty: the other README
+    checks of a tester have nothing to read then.
+    """
     path = os.path.join(project, "README.md")
     if not os.path.isfile(path):
         rep.check("README.md at the root", False)
-        return
+        return False
     rep.check("README.md at the root", True)
     with open(path, encoding="utf-8", errors="replace") as fh:
         text = fh.read()
+    if not text.strip():
+        # one KO, not one per missing section
+        rep.check("README.md has content", False, detail=(
+            "the file is empty: the subject asks for an italic first line "
+            "with your login, then Description, Instructions and "
+            "Resources sections"))
+        return False
     lines = [ln for ln in text.splitlines()]
     first = next((ln.strip() for ln in lines if ln.strip()), "")
     italic = re.fullmatch(r"(\*|_)(?!\1)(.+)\1", first)
@@ -1240,3 +1251,4 @@ def check_readme(rep, project, extra_sections=()):
     rep.check("Resources explain how AI was used", bool(ai),
               detail=None if ai else
               "the subject asks which tasks / parts used AI")
+    return True

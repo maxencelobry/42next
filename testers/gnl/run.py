@@ -1102,8 +1102,8 @@ def main():
             group_functions(rep, ws)
         if core.selected(args, "readme"):
             rep.section("README.md")
-            core.check_readme(rep, project)
-            check_readme_algo(rep, project)
+            if core.check_readme(rep, project):
+                check_readme_algo(rep, project)
         if core.selected(args, "repo"):
             rep.section("repository")
             core.check_repo(rep, project)

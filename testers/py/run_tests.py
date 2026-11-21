@@ -1780,6 +1780,74 @@ def also_files(ex, project):
     return out
 
 
+def has_code(tree):
+    """False when the file holds nothing but docstrings, pass and `...`."""
+    for node in tree.body:
+        if isinstance(node, ast.Pass):
+            continue
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            continue
+        return True
+    return False
+
+
+# a module test reads the student's module as `m`: the names it needs
+_USES = re.compile(r"\bm\.([A-Za-z_]\w*)"
+                   r"|getattr\(\s*m\s*,\s*['\"](\w+)['\"]\s*\)"
+                   r"|\bmodel\(\s*['\"](\w+)['\"]")
+
+
+def test_names(tests):
+    """Top-level names the module tests use (classes, functions)."""
+    names = []
+    for test in tests:
+        if test.get("mode") != "module":
+            continue
+        code = test.get("code", "")
+        code = "\n".join(code) if isinstance(code, list) else code
+        for groups in _USES.findall(code):
+            name = next(g for g in groups if g)
+            if not name.startswith("__") and name not in names:
+                names.append(name)
+    return names
+
+
+def check_defines(path, names):
+    """(ok, detail): the file defines these names at the top level."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+    except (OSError, UnicodeDecodeError, SyntaxError) as exc:
+        return False, str(exc)
+    found = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            found.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = (node.targets if isinstance(node, ast.Assign)
+                       else [node.target])
+            found.update(t.id for t in targets if isinstance(t, ast.Name))
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            found.update((a.asname or a.name).split(".")[0]
+                         for a in node.names)
+    missing = [n for n in names if n not in found]
+    return not missing, ("not defined in the file: " + ", ".join(missing)
+                         if missing else "")
+
+
+def other_files(project, rel):
+    """'; ex0/ has: a.py, b.py' when the folder holds other .py files."""
+    folder = os.path.dirname(os.path.join(project, rel))
+    if not os.path.isdir(folder):
+        return ""
+    py = sorted(n for n in os.listdir(folder) if n.endswith(".py"))
+    if not py:
+        return ""
+    where = os.path.dirname(rel) or "the project"
+    return f"; {where}/ has: " + ", ".join(py[:6])
+
+
 def static_checks(ex, project):
     """List of (name, status, detail) for the source checks asked."""
     files = [ex["file"]] + also_files(ex, project)
@@ -1788,7 +1856,13 @@ def static_checks(ex, project):
     for rel in files:
         try:
             with open(os.path.join(project, rel), encoding="utf-8") as fh:
-                trees.append((rel, ast.parse(fh.read())))
+                tree = ast.parse(fh.read())
+            trees.append((rel, tree))
+            # an empty __init__.py is a normal package marker
+            if not has_code(tree) and not rel.endswith("__init__.py"):
+                results.append((f"{rel} has code", "ko",
+                                "the file is empty (only comments, "
+                                "docstrings or pass)"))
         except SyntaxError as exc:
             results.append((f"{rel} parses", "ko", str(exc)))
         except (OSError, UnicodeDecodeError) as exc:
@@ -2281,7 +2355,8 @@ def main(argv=None):
             if not os.path.isfile(path):
                 rep._close()
                 print()
-                rep.skip(label(ex), ex["file"] + " not found")
+                rep.skip(label(ex), ex["file"] + " not found"
+                         + other_files(project, ex["file"]))
                 continue
             ran += 1
             rep.section(label(ex), gid=ex["id"])
@@ -2301,7 +2376,15 @@ def main(argv=None):
                 blocked.setdefault(missing_reason(absent), []).append(test)
             for why, skipped in blocked.items():
                 rep.skip(skipped[0].get("name", "test") if len(skipped) == 1
-                         else f"{len(skipped)} behaviour tests", why)
+                         else f"{len(skipped)} behaviour tests", why,
+                         count=len(skipped))
+            # without them, still check what can be read in the source
+            if blocked:
+                names = test_names([t for b in blocked.values() for t in b])
+                if names:
+                    ok, detail = check_defines(path, names)
+                    rep.check("defines " + ", ".join(names), ok,
+                              detail=detail or None)
             tests = runnable
             for test in tests:
                 NOTES.clear()

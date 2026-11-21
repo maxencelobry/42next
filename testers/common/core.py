@@ -183,6 +183,7 @@ class Report:
         self.current_gid = None
         self.failed_gids = []   # group id (or None) of each failed section
         self.old = []           # signs of an older subject (old_subject())
+        self.skipped = 0        # checks not run (SKIP lines, with their count)
 
     def section(self, name, gid=None):
         self._close()
@@ -200,9 +201,13 @@ class Report:
             name, ok, ko, warn = self.current
             self.sections.append(tuple(self.current))
             total = ok + ko
-            tag = green("OK") if ko == 0 else red("KO")
             extra = f", {warn} warning(s)" if warn else ""
-            print(f"   {tag} {name}: {ok}/{total}{extra}")
+            if total == 0:
+                # nothing could run here: "OK 0/0" would read as a pass
+                print(f"   {yellow('--')} {name}: not tested{extra}")
+            else:
+                tag = green("OK") if ko == 0 else red("KO")
+                print(f"   {tag} {name}: {ok}/{total}{extra}")
             if ko:
                 self.failed_sections.append(name)
                 self.failed_gids.append(self.current_gid)
@@ -236,7 +241,9 @@ class Report:
             for line in str(detail).splitlines():
                 print(f"       {dim(line)}")
 
-    def skip(self, name, why):
+    def skip(self, name, why, count=1):
+        """A check not run. count: how many checks this line stands for."""
+        self.skipped += count
         print(f"  {yellow('SKIP')} {name} {dim('(' + why + ')')}")
 
     def info(self, text):
@@ -272,7 +279,11 @@ class Report:
             for line in install_hints(MISSING):
                 print(f"       {dim(line)}")
         print()
-        if ko == 0:
+        if ko == 0 and self.skipped:
+            # never "all checks passed" when part of the project was not run
+            print(bold(yellow(f"RESULT {ok}/{ok + ko}  no failure, but "
+                              f"{self.skipped} not tested (SKIP above)")))
+        elif ko == 0:
             print(bold(green(f"RESULT {ok}/{ok + ko}  all checks passed")))
         else:
             print(bold(red(f"RESULT {ok}/{ok + ko}  {ko} failed in: "

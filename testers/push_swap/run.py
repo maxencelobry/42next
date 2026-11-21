@@ -1277,7 +1277,7 @@ def g_leaks(ctx):
     rep = ctx.rep
     rep.section("leaks")
     if ctx.quick:
-        rep.skip("valgrind", "--quick")
+        rep.skip("valgrind", "--quick", count=0)   # chosen, not missing
         return
     if not core.have("valgrind"):
         rep.skip("valgrind", "valgrind not installed")

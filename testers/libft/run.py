@@ -176,19 +176,37 @@ def defined_in(func, project, names):
     return False
 
 
-def make_if_needed(rep, ws_dir, state):
-    """Build libft.a in the workspace (once). Returns its path or None."""
+def no_code(path):
+    """True when a .c file holds only comments, #include lines and blanks
+    (the 42 header and nothing else)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return False
+    text = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.S)
+    text = re.sub(r"(?m)^\s*#\s*include\b.*$", "", text)
+    return not text.strip()
+
+
+def make_if_needed(rep, ws_dir, state, quiet=False):
+    """Build libft.a in the workspace (once). Returns its path or None.
+    quiet: no KO when it fails (the function tests build it another way
+    and say so in a big warning)."""
     lib = os.path.join(ws_dir, "libft.a")
     if state.get("built"):
         return lib if os.path.isfile(lib) else None
     state["built"] = True
     text = core.makefile_text(ws_dir)
     if text is None:
-        rep.check("Makefile present (needed to build libft.a)", False)
+        if not quiet:
+            rep.check("Makefile present (needed to build libft.a)", False)
         return None
     # v1.3 has no bonus part: the linked lists are Part 3 of the mandatory
     # part, so `make` alone must put all 43 functions in libft.a
     res = core.run(["make"], cwd=ws_dir, timeout=300)
+    if not os.path.isfile(lib) and quiet:
+        return None
     if not os.path.isfile(lib):
         rep.check("make builds libft.a at the root", False,
                   detail=core.short_errors(text_of(res)) or
@@ -269,8 +287,15 @@ def check_files(rep, project, ws_dir):
     other = [f for f in names if f.endswith(".c") and not f.startswith("ft_")]
     rep.check("every .c file is named ft_*.c", not other,
               detail=("not ft_*.c: " + ", ".join(other)) if other else None)
-    missing = [f for f in FUNCS if not source_for(f, names)
-               and not defined_in(f, project, names)]
+    missing = []
+    for f in FUNCS:
+        src = source_for(f, names)
+        if defined_in(f, project, names):
+            continue
+        if not src:
+            missing.append(f)
+        elif no_code(os.path.join(project, src)):
+            missing.append(f"{f} ({src} is empty)")
     rep.check(f"the {len(FUNCS)} functions are defined in the .c files",
               not missing,
               detail=("not found: " + ", ".join(missing)) if missing else None)
@@ -713,13 +738,91 @@ def show_case(rep, c):
                   detail="\n".join(more) or None)
 
 
+MAIN = re.compile(r"\bint\s+main\s*\(")
+
+
+def rescue_header():
+    """libft.h written from the subject's prototypes."""
+    protos = "\n".join(f"{PROTOTYPES[f]};" for f in FUNCS)
+    return ("#ifndef LIBFT_H\n# define LIBFT_H\n\n# include <stddef.h>\n"
+            "# include <stdlib.h>\n# include <unistd.h>\n\n"
+            "typedef struct s_list\n{\n\tvoid\t\t\t*content;\n"
+            "\tstruct s_list\t*next;\n}\tt_list;\n\n" + protos
+            + "\n\n#endif\n")
+
+
+def rescue_build(ws):
+    """Build a libft.a from the .c files with cc, without the Makefile, so
+    the functions can still be tested. Returns (lib or None, {file: error},
+    True when the project has its own libft.h)."""
+    by_stem, incdirs = project_sources(ws.dir)
+    own_h = any(os.path.isfile(os.path.join(d, "libft.h")) for d in incdirs)
+    inc = list(incdirs)
+    if not own_h:
+        hdir = ws.tmp("rescue_include")
+        os.makedirs(hdir, exist_ok=True)
+        with open(os.path.join(hdir, "libft.h"), "w") as fh:
+            fh.write(rescue_header())
+        inc.append(hdir)
+    objdir = ws.tmp("rescue_objs")
+    os.makedirs(objdir, exist_ok=True)
+    objs, failed = [], {}
+    for stem, src in sorted(by_stem.items()):
+        try:
+            with open(src, encoding="utf-8", errors="replace") as fh:
+                if MAIN.search(fh.read()):
+                    continue   # a test main of the student, not libft
+        except OSError:
+            continue
+        obj = os.path.join(objdir, stem + ".o")
+        ok, out = core.compile_c(["-c", src], obj, includes=inc)
+        if ok:
+            objs.append(obj)
+        else:
+            failed[os.path.relpath(src, ws.dir)] = core.short_errors(out, 2)
+    if not objs:
+        return None, failed, own_h
+    lib = ws.tmp("rescue_libft.a")
+    res = core.run(["ar", "rcs", lib, *objs], timeout=60)
+    return (lib if res.rc == 0 else None), failed, own_h
+
+
 def test_functions(rep, ws, funcs, state, args):
-    lib = make_if_needed(rep, ws.dir, state)
+    lib = make_if_needed(rep, ws.dir, state, quiet=True)
+    rescued = False
+    broken = {}   # function -> compile error, when 42next built libft.a
     if not lib:
-        rep.section("function tests")
-        rep.check("libft.a available for the tests", False,
-                  detail="the Makefile did not produce libft.a at the root")
-        return
+        rescued = True
+        no_mk = core.makefile_text(ws.dir) is None
+        lib, failed, own_h = rescue_build(ws)
+        missing = ((["Makefile"] if no_mk else [])
+                   + ([] if own_h else ["libft.h"]))
+        title = ("WARNING: NO " + " AND NO ".join(missing).upper()
+                 if missing else "WARNING: MAKE DID NOT BUILD LIBFT.A")
+        lines = ["42next built libft.a itself from your .c files "
+                 "(cc -Wall -Wextra -Werror)"
+                 + ("," if not own_h else ", so the functions can be "
+                    "tested.")]
+        if not own_h:
+            lines.append("with a libft.h written from the subject's "
+                         "prototypes, so the functions can be tested.")
+        lines.append("The project fails as it is: the subject requires "
+                     + (" and ".join("a Makefile" if m == "Makefile" else m
+                                     for m in missing) if missing else
+                        "`make` to build libft.a") + ".")
+        for f, err in failed.items():
+            # drop the temporary path: ft_x.c:15:9: error: ...
+            err = err.replace(ws.dir + os.sep, "")
+            first = err.splitlines()[0][:110] if err else ""
+            lines.append(f"did not compile: {first or f}")
+            broken[os.path.basename(f)[:-2].replace("_bonus", "")] = err
+        rep.big_warning(title, lines)
+        if not lib:
+            rep.section("function tests")
+            rep.check("libft.a available for the tests", False,
+                      detail="neither the Makefile nor 42next could build "
+                             "it from the .c files")
+            return
     exe = build_tester(rep, ws, lib)
     if not exe:
         return
@@ -762,6 +865,13 @@ def test_functions(rep, ws, funcs, state, args):
 
     for func in funcs:
         rep.section(func)
+        if func in missing and func in broken:
+            rep.check(f"{func}.c compiles", False, detail=broken[func])
+            continue
+        if func in missing and rescued:
+            rep.check(f"{func} found in the .c files", False,
+                      detail=f"no {func}.c, and no other file defines it")
+            continue
         if func in missing:
             why = ("symbol not defined in the archive (missing file in the "
                    "Makefile?)")

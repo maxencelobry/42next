@@ -137,6 +137,10 @@ differs, and the end of the run lists what comes from the old one.
 
 Your folder is never modified: everything runs in a temporary copy.
 
+A libft without its Makefile or `libft.h` can still test its functions
+(`42next ft_strlen`): 42next builds `libft.a` itself and shows a big
+warning, since the project fails as it is.
+
 For exams, use [42exam.net](https://42exam.net/).
 
 ## Resources

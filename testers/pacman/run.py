@@ -1286,7 +1286,10 @@ class Env:
             except subprocess.TimeoutExpired:
                 alive = True
                 try:
-                    os.killpg(proc.pid, signal.SIGKILL)
+                    if sys.platform == "win32":
+                        proc.kill()
+                    else:
+                        os.killpg(proc.pid, signal.SIGKILL)
                 except OSError:
                     pass
                 proc.wait()

@@ -184,6 +184,7 @@ class Report:
         self.failed_gids = []   # group id (or None) of each failed section
         self.old = []           # signs of an older subject (old_subject())
         self.skipped = 0        # checks not run (SKIP lines, with their count)
+        self.banners = []       # big_warning(): repeated before RESULT
 
     def section(self, name, gid=None):
         self._close()
@@ -260,8 +261,26 @@ class Report:
         if what not in self.old:
             self.old.append(what)
 
+    def big_warning(self, title, lines=()):
+        """A warning that must not be missed: shown now, and again just
+        before the RESULT line."""
+        self.banners.append((title, list(lines)))
+        self._banner(title, lines)
+
+    @staticmethod
+    def _banner(title, lines):
+        bar = "!" * (len(title) + 8)
+        print()
+        print("  " + bold(red(bar)))
+        print("  " + bold(red(f"!!  {title}  !!")))
+        print("  " + bold(red(bar)))
+        for line in lines:
+            print(f"  {yellow(line)}")
+
     def finish(self):
         self._close()
+        for title, lines in self.banners:
+            self._banner(title, lines)
         ok = sum(s[1] for s in self.sections)
         ko = sum(s[2] for s in self.sections)
         if self.old:
@@ -279,7 +298,12 @@ class Report:
             for line in install_hints(MISSING):
                 print(f"       {dim(line)}")
         print()
-        if ko == 0 and self.skipped:
+        if ko == 0 and self.banners:
+            # the checks passed, but a big warning says the project is not
+            # gradable as it is: never a green line under it
+            print(bold(yellow(f"RESULT {ok}/{ok + ko}  no failure in what "
+                              "was tested, but see the warning above")))
+        elif ko == 0 and self.skipped:
             # never "all checks passed" when part of the project was not run
             print(bold(yellow(f"RESULT {ok}/{ok + ko}  no failure, but "
                               f"{self.skipped} not tested (SKIP above)")))
@@ -469,12 +493,17 @@ def install_hints(tools):
         else:
             lines.append("python3 -m pip install --user " + " ".join(py))
     if libs:
-        pip = "python3 -m pip install " + " ".join(libs)
         if sys.prefix != sys.base_prefix:
-            lines.append(pip + "   (into the active virtual environment)")
+            # the tests already run in a venv (the project's, or the
+            # active one): the packages go there
+            lines.append(f"{sys.executable} -m pip install "
+                         + " ".join(libs))
         else:
-            lines.append("python3 -m venv .venv && . .venv/bin/activate && "
-                         + pip + "   (then run the tests from that shell)")
+            venv_py = (".venv\\Scripts\\python" if os.name == "nt"
+                       else ".venv/bin/python")
+            lines.append("in the project folder: python3 -m venv .venv && "
+                         f"{venv_py} -m pip install " + " ".join(libs)
+                         + "   (42next then uses .venv by itself)")
     if "docker" in tools:
         lines.append("docker: https://docs.docker.com/engine/install/")
     return lines

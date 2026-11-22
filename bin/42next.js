@@ -60,10 +60,19 @@ const SPECS = ls(path.join(T, 'py', 'specs')).filter((f) => f.endsWith('.json'))
   .sort((a, b) => pyRank(a) - pyRank(b));
 
 // Each detector gets a directory and returns a score (0 = not this project).
+// the 43 functions of the libft subject: ft_strlen.c, ft_lstmap_bonus.c...
+const LIBFT_NAMES = ('isalpha isdigit isalnum isascii isprint strlen memset bzero memcpy memmove '
+  + 'strlcpy strlcat toupper tolower strchr strrchr strncmp memchr memcmp strnstr atoi calloc strdup '
+  + 'substr strjoin strtrim split itoa strmapi striteri putchar_fd putstr_fd putendl_fd putnbr_fd '
+  + 'lstnew lstadd_front lstsize lstlast lstadd_back lstdelone lstclear lstiter lstmap').split(' ');
+const LIBFT_FILE = new RegExp('^ft_(' + LIBFT_NAMES.join('|') + ')(_bonus)?\\.c$');
+
 const C_PROJECTS = [
   {
     id: 'libft', name: 'libft', group: 'C', tester: 'libft/run.py',
-    score: (d) => (exists(d, 'libft.h') ? 1 : 0) * ls(d).filter((n) => /^ft_.*\.c$/.test(n)).length,
+    // with libft.h: every ft_*.c counts. Without it (not written yet):
+    // only the files named after a libft function
+    score: (d) => ls(d).filter((n) => (exists(d, 'libft.h') ? /^ft_.*\.c$/.test(n) : LIBFT_FILE.test(n))).length,
   },
   {
     id: 'printf', name: 'ft_printf', group: 'C', tester: 'printf/run.py',
@@ -135,7 +144,8 @@ function detect(start) {
     if (tooBig(d)) continue;
     for (const proj of C_PROJECTS) {
       const s = proj.score(d);
-      if (s >= (proj.id === 'libft' ? 10 : 50)) found.push({ ...proj, dir: d, s, kind: 'c' });
+      // a libft is found from 10 files, or from one in the folder you are in
+      if (s >= (proj.id === 'libft' ? (d === start ? 1 : 10) : 50)) found.push({ ...proj, dir: d, s, kind: 'c' });
     }
     for (const spec of SPECS) {
       const s = pyScore(d, spec);
@@ -186,14 +196,34 @@ function groups(p) {
   return r.stdout.split('\n').filter(Boolean).map((l) => { const [id, ...rest] = l.split('\t'); return { id, label: rest.join(' · ') || id }; });
 }
 
+// A virtual environment in a Python project, or up to 2 folders above it:
+// its Python runs the tests, so what is installed there (pydantic, pandas...)
+// is found without activating it. An active venv or $PYTHON wins.
+const VENV_NAMES = ['.venv', 'venv', 'env', '.env'];
+function projectPython(p) {
+  if ((p.kind !== 'py' && p.group !== 'Python') || process.env.VIRTUAL_ENV || process.env.PYTHON) return null;
+  let d = p.venvFrom || p.dir;
+  for (let i = 0; i < 3 && !tooBig(d); i++, d = path.dirname(d)) {
+    for (const n of VENV_NAMES) {
+      if (!exists(d, n, 'pyvenv.cfg')) continue;
+      const py = process.platform === 'win32' ? path.join(d, n, 'Scripts', 'python.exe') : path.join(d, n, 'bin', 'python');
+      if (spawnSync(py, ['-c', 'import sys; assert sys.version_info >= (3, 9)']).status === 0) return { py, where: path.join(d, n) };
+    }
+  }
+  return null;
+}
+
 function runTester(p, only = [], extra = [], env = {}) {
   if (!PY_FOUND) noPython();
   const args = [...testerArgs(p), ...(only.length ? ['--only', only.join(',')] : []), ...(tty && !extra.includes('--no-color') ? ['--color'] : []), ...extra];
-  if (process.env.NEXT_DEBUG) console.log(dim(`$ ${PY} ${args.join(' ')}`));
+  const venv = projectPython(p);
+  const py = venv ? venv.py : PY;
+  if (venv) console.log(dim(` python of ${short(venv.where)}`));
+  if (process.env.NEXT_DEBUG) console.log(dim(`$ ${py} ${args.join(' ')}`));
   // ctrl-c goes to the tester only: it stops, cleans up, and the menu stays
   const ignore = () => {};
   process.on('SIGINT', ignore);
-  const r = spawnSync(PY, args, { stdio: 'inherit', env: { ...process.env, ...env } });
+  const r = spawnSync(py, args, { stdio: 'inherit', env: { ...process.env, ...env } });
   process.off('SIGINT', ignore);
   if (r.error) noPython();
   if (r.status === 0) askStar();
@@ -255,7 +285,7 @@ function runJob(p, job, menu = true) {
     if (exp.dirty) console.log(yellow(` ${exp.dirty} file(s) changed since this commit: not tested (commit them)`));
     if (exp.ahead === null) console.log(yellow(' no remote branch: nothing is pushed yet'));
     else if (exp.ahead) console.log(yellow(` ${exp.ahead} commit(s) not pushed yet (git push)`));
-    target = { ...p, dir: exp.tmp };
+    target = { ...p, dir: exp.tmp, venvFrom: p.dir };
     env.NEXT42_PROJECT_LABEL = `${short(p.dir)}  @ ${exp.head.split(' ')[0]}`;
   }
   if (menu) console.log(dim(' ctrl-c stops the test and brings you back'));

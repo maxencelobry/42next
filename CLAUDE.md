@@ -37,4 +37,10 @@ python3 -B run.py --project DIR [--only g1,g2] [--list] [--quick] [--verbose] [-
 
 ## Checks before a commit
 
-`flake8 testers`, `mypy --cache-dir /tmp/x --ignore-missing-imports <file>` on each run.py, `node --check bin/42next.js`, `bash -n` on the shell scripts. Then run each tester on a real project and on a copy with injected bugs.
+`flake8 testers dev`, `mypy --cache-dir /tmp/x --ignore-missing-imports <file>` on each run.py, `node --check bin/42next.js`, `bash -n` on the shell scripts. Then the battery, in WSL or Linux (about 10 min):
+
+```
+python3 -I dev/battery.py ~/42mlobry ~/Desktop/42
+```
+
+It runs every tester on the owner's projects (a clone of github.com/maxencelobry/42mlobry, then the work in progress), as they are and with injected bugs, plus smoke cases for the testers with no sample project. `dev/baseline.json` holds the RESULT line of each project as it is: after a change that adds or removes a check on purpose, check the new numbers, then run with `--update`. A new check or tester gets its own injected-bug case in `dev/battery.py`.
